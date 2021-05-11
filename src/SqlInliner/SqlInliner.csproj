@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net5.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <Version>0.1</Version>
+    <Product>SQL inliner</Product>
+    <Authors>Steve Hansen</Authors>
+    <RepositoryUrl>https://github.com/stevehansen/sql-inliner/</RepositoryUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Dapper" Version="2.0.90" />
+    <PackageReference Include="Microsoft.SqlServer.DacFx" Version="150.5084.2" />
+    <PackageReference Include="System.CommandLine" Version="2.0.0-beta1.21216.1" />
+    <PackageReference Include="ThisAssembly.AssemblyInfo" Version="1.0.8" />
+    <PackageReference Include="ThisAssembly.Metadata" Version="1.0.8" />
+  </ItemGroup>
+
+</Project>
