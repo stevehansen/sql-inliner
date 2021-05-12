@@ -21,7 +21,7 @@ jobs:
             os: macos-latest
             target: osx-x64
     runs-on: ${{ matrix.os }}
-    
+
     steps:
       - name: Checkout
         uses: actions/checkout@v1
@@ -30,7 +30,7 @@ jobs:
         uses: actions/setup-dotnet@v1
         with:
           dotnet-version: 5.0.x
-          
+
       - name: Build
         shell: bash
         run: |
@@ -39,21 +39,25 @@ jobs:
           release_name="SqlInliner-$tag-${{ matrix.target }}"
 
           # Build everything
-          dotnet publish src/SqlInliner/SqlInliner.csproj --framework net5.0 --runtime "${{ matrix.target }}" -c Release -o "$release_name"
+          dotnet publish src/SqlInliner/SqlInliner.csproj --framework net5.0 --runtime "${{ matrix.target }}" -c Release -o "$release_name" /p:PublishSingleFile=true /p:PublishReadyToRun=true /p:PublishTrimmed=true /p:TrimMode=Link
 
           # Pack files
           if [ "${{ matrix.target }}" == "win-x64" ]; then
             7z a -tzip "${release_name}.zip" "./${release_name}/*"
+
+            dotnet pack --configuration Release --output .
+
+            dotnet nuget push SqlInliner.$tag.nupkg --source https://nuget.pkg.github.com/stevehansen/index.json --api-key ${GITHUB_TOKEN}
           else
             tar czvf "${release_name}.tar.gz" "$release_name"
           fi
 
           # Delete output directory
           rm -r "$release_name"
-          
+
       - name: Publish
         uses: softprops/action-gh-release@v1
         with:
-          files: "SqlInliner*"
+          files: "SqlInliner-*"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

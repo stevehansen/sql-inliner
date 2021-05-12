@@ -65,7 +65,7 @@ namespace SqlInliner
         {
             if (!viewDefinitions.TryGetValue(viewName, out var view))
             {
-                view = Connection.Query<string>("SELECT OBJECT_DEFINITION(object_id('" + viewName + "'))").First();
+                view = Connection.Query<string>($"SELECT OBJECT_DEFINITION(object_id('{viewName}'))").First();
 
                 var originalStart = view.IndexOf(DatabaseView.BeginOriginal, StringComparison.Ordinal);
                 if (originalStart > 0)
