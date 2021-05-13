@@ -173,10 +173,10 @@ namespace SqlInliner
                     // NOTE: Strip unused select columns from nested views
 
                     // We are going to list all possible references to the current view, by alias or any single part identifiers.
-                    var columns = references.ColumnReferences
+                    var columns = new HashSet<string>(references.ColumnReferences
                         .Where(c => c.MultiPartIdentifier.Count == 1 || c.MultiPartIdentifier[0].Value == alias)
                         .Select(c => c.MultiPartIdentifier.Identifiers.Last().Value)
-                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                        , StringComparer.OrdinalIgnoreCase);
 
                     var allSelectElements = new List<IList<SelectElement>>();
 

@@ -39,13 +39,13 @@ jobs:
           release_name="SqlInliner-$tag-${{ matrix.target }}"
 
           # Build everything
-          dotnet publish src/SqlInliner/SqlInliner.csproj --framework net5.0 --runtime "${{ matrix.target }}" -c Release -o "$release_name" /p:PublishSingleFile=true /p:PublishReadyToRun=true /p:PublishTrimmed=true /p:TrimMode=Link
+          dotnet publish src/SqlInliner/SqlInliner.csproj --framework net5.0 --runtime "${{ matrix.target }}" -c Release -o "$release_name"
 
           # Pack files
           if [ "${{ matrix.target }}" == "win-x64" ]; then
             7z a -tzip "${release_name}.zip" "./${release_name}/*"
 
-            dotnet pack --configuration Release --output .
+            dotnet pack --configuration ReleaseLibrary --output .
 
             dotnet nuget push SqlInliner.$tag.nupkg --source https://nuget.pkg.github.com/stevehansen/index.json --api-key ${GITHUB_TOKEN}
           else

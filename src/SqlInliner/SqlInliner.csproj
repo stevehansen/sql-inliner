@@ -2,12 +2,32 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net5.0</TargetFramework>
+    <TargetFrameworks>net5.0</TargetFrameworks>
+    <LangVersion>9.0</LangVersion>
     <Nullable>enable</Nullable>
+    <Configurations>Debug;Release;ReleaseLibrary</Configurations>
+    <Version>0.0.0</Version>
     <Product>SQL inliner</Product>
+    <Description>Helper utility to inline SQL server database views</Description>
+    <PackageTags>sqlserver inline views</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <Authors>Steve Hansen</Authors>
+    <Copyright>Steve Hansen</Copyright>
     <RepositoryType>git</RepositoryType>
     <RepositoryUrl>https://github.com/stevehansen/sql-inliner/</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/stevehansen/sql-inliner/</PackageProjectUrl>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <PublishSingleFile>True</PublishSingleFile>
+    <PublishReadyToRun>True</PublishReadyToRun>
+    <PublishTrimmed>True</PublishTrimmed>
+    <TrimMode>Link</TrimMode>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'ReleaseLibrary'">
+    <OutputType>Library</OutputType>
+    <TargetFrameworks>netstandard2.0;net5.0</TargetFrameworks>
   </PropertyGroup>
 
   <ItemGroup>
@@ -21,9 +41,13 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="System.CommandLine" Version="2.0.0-beta1.21216.1" />
-    <PackageReference Include="ThisAssembly.AssemblyInfo" Version="1.0.8" />
-    <PackageReference Include="ThisAssembly.Metadata" Version="1.0.8" />
+    <PackageReference Include="System.CommandLine" Version="2.0.0-beta1.21216.1" Condition="'$(Configuration)' != 'ReleaseLibrary'" />
+    <PackageReference Include="ThisAssembly.AssemblyInfo" Version="1.0.8">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="ThisAssembly.Metadata" Version="1.0.8">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
   </ItemGroup>
 
 </Project>

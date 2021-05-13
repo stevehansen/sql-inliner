@@ -1,9 +1,11 @@
-﻿using System;
+﻿#if !RELEASELIBRARY
+using System;
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.IO;
 using System.Text.RegularExpressions;
 using Microsoft.Data.SqlClient;
+#endif
 
 namespace SqlInliner
 {
@@ -11,6 +13,7 @@ namespace SqlInliner
     {
         public const string AppName = ThisAssembly.Info.Product + " v" + ThisAssembly.Info.InformationalVersion + " - " + ThisAssembly.Metadata.RepositoryUrl;
 
+#if !RELEASELIBRARY
         private static int Main(string[] args)
         {
             var rootCommand = new RootCommand(AppName)
@@ -57,5 +60,6 @@ namespace SqlInliner
 
             return rootCommand.Invoke(args);
         }
+#endif
     }
 }

@@ -75,7 +75,8 @@ namespace SqlInliner
                     {
                         originalStart += DatabaseView.BeginOriginal.Length;
 
-                        view = view[originalStart..originalEnd].Trim();
+                        //view = view[originalStart..originalEnd].Trim();
+                        view = view.Substring(originalStart,  originalEnd - originalStart).Trim();
                     }
                 }
 
