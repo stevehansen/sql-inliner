@@ -47,7 +47,7 @@ jobs:
 
             dotnet pack --configuration ReleaseLibrary --output .
 
-            dotnet nuget push SqlInliner.$tag.nupkg --source https://nuget.pkg.github.com/stevehansen/index.json --api-key ${GITHUB_TOKEN}
+            dotnet nuget push SqlInliner.$tag.nupkg --source https://nuget.pkg.github.com/stevehansen/index.json --api-key "${GITHUB_TOKEN}"
           else
             tar czvf "${release_name}.tar.gz" "$release_name"
           fi

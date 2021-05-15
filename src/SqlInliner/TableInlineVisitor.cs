@@ -7,9 +7,9 @@ namespace SqlInliner
     /// This visitor is used to replace usages of the view to an inline select query (e.g. "inner join view v" becomes "inner join (select x from table) v") and to remove unused joins.
     /// </summary>
     /// <remarks>
-    /// ScriptDom nodes have no concept of a parent node so we always need to start from the parent and check for the specfic childs.
+    /// ScriptDom nodes have no concept of a parent node so we always need to start from the parent and check for the specific children.
     /// </remarks>
-    public class TableInlineVisitor : TSqlFragmentVisitor
+    public sealed class TableInlineVisitor : TSqlFragmentVisitor
     {
         private readonly Dictionary<TableReference, TableReference> toReplace;
         private readonly List<TableReference> toRemove;
@@ -39,7 +39,7 @@ namespace SqlInliner
         }
 
         /// <inheritdoc />
-        public override void ExplicitVisit(JoinTableReference node)
+        public override void ExplicitVisit(JoinTableReference node) // TODO: Not used?
         {
             if (toRemove.Count > 0)
             {

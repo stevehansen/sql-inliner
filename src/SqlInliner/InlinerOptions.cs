@@ -1,6 +1,6 @@
 ﻿namespace SqlInliner
 {
-    public class InlinerOptions
+    public sealed class InlinerOptions
     {
         public bool StripUnusedColumns { get; set; } = true;
 

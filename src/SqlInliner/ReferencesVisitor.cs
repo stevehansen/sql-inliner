@@ -3,7 +3,7 @@ using Microsoft.SqlServer.TransactSql.ScriptDom;
 
 namespace SqlInliner
 {
-    public class ReferencesVisitor : TSqlFragmentVisitor
+    public sealed class ReferencesVisitor : TSqlFragmentVisitor
     {
         private readonly DatabaseConnection connection;
 
@@ -32,7 +32,7 @@ namespace SqlInliner
         public override void ExplicitVisit(ColumnReferenceExpression node)
         {
             if (node.MultiPartIdentifier != null)
-                ColumnReferences.Add(node);
+                ColumnReferences.Add(node); // TODO: Remove known built-in function arguments, e.g. DATEADD(month, 1, t.Column) should only report t.Column
 
             base.ExplicitVisit(node);
         }

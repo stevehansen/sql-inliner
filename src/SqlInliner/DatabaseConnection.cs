@@ -1,8 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Linq;
 using Dapper;
-using Microsoft.Data.SqlClient;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
 
 namespace SqlInliner
@@ -10,32 +10,33 @@ namespace SqlInliner
     /// <summary>
     /// Keeps track of database related information.
     /// </summary>
-    public class DatabaseConnection
+    public sealed class DatabaseConnection
     {
+        // TODO: Wrap SchemaObjectName
+
         private readonly Dictionary<string, string> viewDefinitions = new();
 
-        public DatabaseConnection(SqlConnection connection)
+        public DatabaseConnection(IDbConnection connection)
         {
             Connection = connection;
 
             Views = connection
                 .Query<ObjectIdentifier>("select schema_name(schema_id) [schema], name from sys.views where object_id not in (select object_id from sys.indexes)")
-                .Select(it =>
-                {
-                    var objectName = new SchemaObjectName();
-                    objectName.Identifiers.Add(new() { Value = it.Schema });
-                    objectName.Identifiers.Add(new() { Value = it.Name });
-                    return objectName;
-                })
-                .ToArray();
+                .Select(it => ToObjectName(it.Schema, it.Name))
+                .ToList();
         }
 
-        public SqlConnection Connection { get; }
+        public DatabaseConnection()
+        {
+            Views = new();
+        }
+
+        public IDbConnection? Connection { get; }
 
         /// <summary>
         /// Gets all the non-indexed views that are available in the databases. Is used to determines which table references should be inlined.
         /// </summary>
-        public SchemaObjectName[] Views { get; }
+        public List<SchemaObjectName> Views { get; }
 
         /// <summary>
         /// Checks if the specified <paramref name="objectName"/> is a non-indexed view.
@@ -49,13 +50,10 @@ namespace SqlInliner
         /// <summary>
         /// Can be used to give the SQL for a specified view instead of using the definition from the database.
         /// </summary>
-        public void AddViewDefinition(string viewName, string viewSql)
+        public void AddViewDefinition(SchemaObjectName viewName, string viewSql)
         {
-            //var objectName = new SchemaObjectName();
-
-            viewDefinitions[viewName] = viewSql;
-
-            // TODO: Add to Views
+            viewDefinitions[viewName.GetName()] = viewSql;
+            Views.Add(viewName);
         }
 
         /// <summary>
@@ -92,6 +90,14 @@ namespace SqlInliner
             public string Schema { get; set; } = null!;
 
             public string Name { get; set; } = null!;
+        }
+
+        public static SchemaObjectName ToObjectName(string schema, string name)
+        {
+            var objectName = new SchemaObjectName();
+            objectName.Identifiers.Add(new() { Value = schema });
+            objectName.Identifiers.Add(new() { Value = name });
+            return objectName;
         }
     }
 }

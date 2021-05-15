@@ -1,22 +1,18 @@
 ﻿#if !RELEASELIBRARY
+
 using System;
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.IO;
-using System.Text.RegularExpressions;
 using Microsoft.Data.SqlClient;
-#endif
 
 namespace SqlInliner
 {
     internal static class Program
     {
-        public const string AppName = ThisAssembly.Info.Product + " v" + ThisAssembly.Info.InformationalVersion + " - " + ThisAssembly.Metadata.RepositoryUrl;
-
-#if !RELEASELIBRARY
         private static int Main(string[] args)
         {
-            var rootCommand = new RootCommand(AppName)
+            var rootCommand = new RootCommand(ThisAssembly.AppName)
             {
                 new Option<string>(new[] { "--connection-string", "-cs" }, "Contains the connection string to connect to the database"),
                 new Option<string>(new[] { "--view-name", "-vn" }, "The name of the view to inline"),
@@ -24,6 +20,7 @@ namespace SqlInliner
                 new Option<bool>(new[] { "--strip-unused-columns", "-suc" }, () => true),
                 new Option<bool>(new[] { "--strip-unused-joins", "-suj" }),
                 new Option<bool>("--generate-create-or-alter", () => true),
+                // TODO: DatabaseView.parser (hardcoded to TSql150Parser)
             };
 
             rootCommand.Handler = CommandHandler.Create<string, string?, FileInfo?, bool, bool, bool>((connectionString, viewName, viewPath, stripUnusedColumns, stripUnusedJoins, generateCreateOrAlter) =>
@@ -31,11 +28,11 @@ namespace SqlInliner
                 var cs = new SqlConnectionStringBuilder(connectionString);
                 if (!cs.ContainsKey(nameof(cs.ApplicationName)))
                 {
-                    cs.ApplicationName = AppName;
+                    cs.ApplicationName = ThisAssembly.AppName;
                     connectionString = cs.ToString();
                 }
 
-                var connection = new DatabaseConnection(new(connectionString));
+                var connection = new DatabaseConnection(new SqlConnection(connectionString));
 
                 string viewSql;
                 if (!string.IsNullOrEmpty(viewName))
@@ -46,7 +43,7 @@ namespace SqlInliner
                     throw new InvalidOperationException("At least --view-name or --view-path is required.");
 
                 if (generateCreateOrAlter)
-                    viewSql = Regex.Replace(viewSql, @"\bCREATE\b\s+VIEW", "CREATE OR ALTER VIEW", RegexOptions.IgnoreCase);
+                    viewSql = DatabaseView.CreateOrAlter(viewSql);
 
                 var inliner = new DatabaseViewInliner(connection, viewSql, new()
                 {
@@ -60,6 +57,7 @@ namespace SqlInliner
 
             return rootCommand.Invoke(args);
         }
-#endif
     }
 }
+
+#endif

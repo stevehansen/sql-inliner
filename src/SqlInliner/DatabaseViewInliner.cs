@@ -9,7 +9,7 @@ namespace SqlInliner
     /// <summary>
     /// Analyzes usage of nested views and inlines them as a sub-select, optionally will remove parts of the nested selects depending on the <see cref="InlinerOptions"/>.
     /// </summary>
-    public class DatabaseViewInliner
+    public sealed class DatabaseViewInliner
     {
         private readonly DatabaseConnection connection;
         private readonly InlinerOptions options;
@@ -83,8 +83,10 @@ namespace SqlInliner
 
             sw.Stop();
 
-            // TODO: Convert to StringBuilder?
-            Sql = $"/*\n-- Generated on {DateTime.Now:G} by {Program.AppName} in {sw.Elapsed}\n{DatabaseView.BeginOriginal}\n{viewSql}\n{DatabaseView.EndOriginal}\n\n-- Referenced views ({knownViews.Count}):\n{string.Join("\n", knownViews.Keys)}\n\n-- Removed: {TotalSelectColumnsStripped} select columns and {TotalJoinsStripped} joins\n\n-- Warnings ({Warnings.Count}):\n{string.Join("\n", Warnings)}\n\n-- Errors ({Errors.Count}):\n{string.Join("\n", Errors)}\n\n*/\n{formattedSql}\n\n";
+            var result = new InlinerResult(this, sw.Elapsed, viewSql, knownViews, formattedSql);
+
+            Sql = result.Sql;
+            Result = result;
         }
 
         /// <summary>
@@ -113,20 +115,35 @@ namespace SqlInliner
         public int TotalJoinsStripped { get; private set; }
 
         /// <summary>
-        /// Gets the resulting SQL statement.
+        /// Gets the resulting SQL statement that should be used as replacement.
         /// </summary>
         public string Sql { get; }
+
+        /// <summary>
+        /// Gets the optional information for a successful inlining result.
+        /// </summary>
+        public InlinerResult? Result { get; }
 
         /// <summary>
         /// Start from the specified <paramref name="view"/> and recursively inline any used views.
         /// </summary>
         private void Inline(DatabaseView view)
         {
+            var toReplace = new Dictionary<TableReference, TableReference>();
+            var toRemove = new List<TableReference>();
+
             var tree = view.Tree!;
             var references = view.References!;
             var referencedViews = references.Views;
             if (referencedViews.Count == 0)
+            {
+                StripUnusedTables(references, toRemove);
+
+                if (toRemove.Count > 0)
+                    tree.Accept(new TableInlineVisitor(toReplace, toRemove));
+
                 return;
+            }
 
             var withoutAlias = referencedViews
                 .Where(v => v.Alias == null)
@@ -150,8 +167,6 @@ namespace SqlInliner
             //    return;
             //}
 
-            var toReplace = new Dictionary<TableReference, TableReference>();
-            var toRemove = new List<TableReference>();
             foreach (var referenced in referencedViews)
             {
                 var viewName = referenced.SchemaObject.GetName();
@@ -281,13 +296,30 @@ namespace SqlInliner
                 };
             }
 
-            if (options.StripUnusedJoins)
-            {
-                // TODO: Remove unused table joins
-            }
+            StripUnusedTables(references, toRemove);
 
             // NOTE: Replace from/join with inner view
             tree.Accept(new TableInlineVisitor(toReplace, toRemove));
+        }
+
+        private void StripUnusedTables(ReferencesVisitor references, List<TableReference> toRemove)
+        {
+            if (options.StripUnusedJoins && references.Tables.Count > 0)
+            {
+                foreach (var referenced in references.Tables)
+                {
+                    var alias = referenced.Alias?.Value ?? referenced.SchemaObject.BaseIdentifier.Value;
+                    var columns = new HashSet<string>(references.ColumnReferences
+                            .Where(c => c.MultiPartIdentifier.Count == 1 || c.MultiPartIdentifier[0].Value == alias)
+                            .Select(c => c.MultiPartIdentifier.Identifiers.Last().Value)
+                        , StringComparer.OrdinalIgnoreCase);
+                    if (columns.Count <= 1)
+                    {
+                        toRemove.Add(referenced);
+                        TotalJoinsStripped++;
+                    }
+                }
+            }
         }
 
         private static SqlScriptGeneratorOptions GetOptions()

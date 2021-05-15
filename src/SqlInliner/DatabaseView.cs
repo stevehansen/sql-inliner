@@ -1,6 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Text.RegularExpressions;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
 
 namespace SqlInliner
@@ -9,12 +10,13 @@ namespace SqlInliner
     /// Describes a SQL view with information about it.
     /// </summary>
     [DebuggerDisplay("{" + nameof(ViewName) + "}")]
-    public class DatabaseView
+    public sealed class DatabaseView
     {
         public const string BeginOriginal = "-- BEGIN ORIGINAL SQL VIEW --";
+
         public const string EndOriginal = "-- END ORIGINAL SQL VIEW --";
 
-        private static readonly TSql150Parser parser = new(true, SqlEngineType.All);
+        private static readonly TSql150Parser parser = new(true, SqlEngineType.All); // TODO: Configure which parser to use?
 
         private DatabaseView(TSqlFragment tree, ReferencesVisitor references)
         {
@@ -23,12 +25,18 @@ namespace SqlInliner
             ViewName = references.ViewName!.GetName();
         }
 
+        /// <summary>
+        /// Gets the two-part quoted view name.
+        /// </summary>
         public string ViewName { get; }
 
         public TSqlFragment Tree { get; }
 
         public ReferencesVisitor References { get; }
 
+        /// <summary>
+        /// Creates a <see cref="DatabaseView"/> instance for the specified <paramref name="viewSql"/>.
+        /// </summary>
         public static (DatabaseView?, IList<ParseError>) FromSql(DatabaseConnection connection, string viewSql)
         {
             using var input = new StringReader(viewSql);
@@ -54,6 +62,14 @@ namespace SqlInliner
             }
 
             return (null, errors);
+        }
+
+        /// <summary>
+        /// Converts a CREATE VIEW statement in a CREATE OR ALTER VIEW statement.
+        /// </summary>
+        public static string CreateOrAlter(string viewSql)
+        {
+            return Regex.Replace(viewSql, @"\bCREATE\b\s+VIEW", "CREATE OR ALTER VIEW", RegexOptions.IgnoreCase);
         }
     }
 }
