@@ -137,9 +137,9 @@ namespace SqlInliner
             var referencedViews = references.Views;
             if (referencedViews.Count == 0)
             {
-                StripUnusedTables(references, toRemove);
+                DetectUnusedTablesToStrip(references, toRemove);
 
-                if (toRemove.Count > 0)
+                while (toRemove.Count > 0) // TODO: Optimize?
                     tree.Accept(new TableInlineVisitor(toReplace, toRemove));
 
                 return;
@@ -297,24 +297,26 @@ namespace SqlInliner
                 };
             }
 
-            StripUnusedTables(references, toRemove);
+            DetectUnusedTablesToStrip(references, toRemove);
 
             // NOTE: Replace from/join with inner view
             tree.Accept(new TableInlineVisitor(toReplace, toRemove));
+
+            while (toRemove.Count > 0) // TODO: Optimize?
+                tree.Accept(new TableInlineVisitor(toReplace, toRemove));
         }
 
-        private void StripUnusedTables(ReferencesVisitor references, List<TableReference> toRemove)
+        private void DetectUnusedTablesToStrip(ReferencesVisitor references, List<TableReference> toRemove)
         {
             if (options.StripUnusedJoins && references.Tables.Count > 0)
             {
                 foreach (var referenced in references.Tables)
                 {
                     var alias = referenced.Alias?.Value ?? referenced.SchemaObject.BaseIdentifier.Value;
-                    var columns = new HashSet<string>(references.ColumnReferences
+                    var columns = references.ColumnReferences
                             .Where(c => c.MultiPartIdentifier.Count == 1 || c.MultiPartIdentifier[0].Value == alias)
-                            .Select(c => c.MultiPartIdentifier.Identifiers.Last().Value)
-                        , StringComparer.OrdinalIgnoreCase);
-                    if (columns.Count <= 1)
+                            .Select(c => c.MultiPartIdentifier.Identifiers.Last().Value);
+                    if (columns.Count() <= 1)
                     {
                         toRemove.Add(referenced);
                         TotalJoinsStripped++;

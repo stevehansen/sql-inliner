@@ -32,7 +32,10 @@ namespace SqlInliner
                     node.TableReferences[i] = RemoveReference(node.TableReferences[i]);
 
                 if (toReplace.TryGetValue(node.TableReferences[i], out var replacement))
+                {
+                    toReplace.Remove(node.TableReferences[i]);
                     node.TableReferences[i] = replacement;
+                }
             }
 
             base.ExplicitVisit(node);
@@ -48,10 +51,16 @@ namespace SqlInliner
             }
 
             if (toReplace.TryGetValue(node.FirstTableReference, out var replacement))
+            {
+                toReplace.Remove(node.FirstTableReference);
                 node.FirstTableReference = replacement;
+            }
 
             if (toReplace.TryGetValue(node.SecondTableReference, out replacement))
+            {
+                toReplace.Remove(node.SecondTableReference);
                 node.SecondTableReference = replacement;
+            }
 
             base.ExplicitVisit(node);
         }
@@ -66,10 +75,16 @@ namespace SqlInliner
             }
 
             if (toReplace.TryGetValue(node.FirstTableReference, out var replacement))
+            {
+                toReplace.Remove(node.FirstTableReference);
                 node.FirstTableReference = replacement;
+            }
 
             if (toReplace.TryGetValue(node.SecondTableReference, out replacement))
+            {
+                toReplace.Remove(node.SecondTableReference);
                 node.SecondTableReference = replacement;
+            }
 
             base.ExplicitVisit(node);
         }
@@ -81,10 +96,16 @@ namespace SqlInliner
             if (tableReference is JoinTableReference join)
             {
                 if (toRemove.Contains(join.FirstTableReference))
+                {
+                    toRemove.Remove(join.FirstTableReference);
                     return join.SecondTableReference;
+                }
 
                 if (toRemove.Contains(join.SecondTableReference))
+                {
+                    toRemove.Remove(join.SecondTableReference);
                     return join.FirstTableReference;
+                }
             }
 
             return tableReference;
