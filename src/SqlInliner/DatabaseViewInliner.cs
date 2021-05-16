@@ -155,17 +155,18 @@ namespace SqlInliner
                 return;
             }
 
-            // TODO: ScriptDom will report some parameters as column references, e.g. DATEADD(month, 1, t.Column) will report both "month" and "t.Column"
-            //var invalidColumnReferences = references.ColumnReferences
-            //    .Where(it => it.MultiPartIdentifier.Count == 1)
-            //    .ToArray();
-            //if (invalidColumnReferences.Length > 0)
-            //{
-            //    // NOTE: Use of multipart identifier is needed for now
-            //    var invalidColumnReferencesInfo = string.Join("\n", invalidColumnReferences.Select(a => " - " + string.Join(".", a.MultiPartIdentifier.Identifiers.Select(id => id.Value))));
-            //    Warnings.Add($"Use of multipart identifiers is needed in {view.ViewName}, aborting:\n{invalidColumnReferencesInfo}");
-            //    return;
-            //}
+            if (options.StripUnusedJoins)
+            {
+                var invalidColumnReferences = references.ColumnReferences
+                    .Where(it => it.MultiPartIdentifier.Count == 1)
+                    .ToArray();
+                if (invalidColumnReferences.Length > 0)
+                {
+                    // NOTE: Use of single part identifier will block stripping of joins
+                    var invalidColumnReferencesInfo = string.Join("\n", invalidColumnReferences.Select(a => " - " + string.Join(".", a.MultiPartIdentifier.Identifiers.Select(id => id.Value))));
+                    Warnings.Add($"Use of single part identifiers in {view.ViewName}:\n{invalidColumnReferencesInfo}");
+                }
+            }
 
             foreach (var referenced in referencedViews)
             {

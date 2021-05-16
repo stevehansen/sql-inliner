@@ -29,10 +29,26 @@ namespace SqlInliner
         public List<NamedTableReference> Views { get; } = new();
 
         /// <inheritdoc />
+        public override void ExplicitVisit(FunctionCall node)
+        {
+            base.ExplicitVisit(node);
+
+            // NOTE: Remove known built-in function arguments, e.g. DATEADD(month, 1, t.Column) should only report t.Column
+            if (node.FunctionName?.QuoteType == QuoteType.NotQuoted && ParametersToIgnore.HasIgnoredParameters(node.FunctionName.Value, out var indexes))
+            {
+                foreach (var idx in indexes)
+                {
+                    if (node.Parameters[idx] is ColumnReferenceExpression columnReference)
+                        ColumnReferences.Remove(columnReference);
+                }
+            }
+        }
+
+        /// <inheritdoc />
         public override void ExplicitVisit(ColumnReferenceExpression node)
         {
             if (node.MultiPartIdentifier != null)
-                ColumnReferences.Add(node); // TODO: Remove known built-in function arguments, e.g. DATEADD(month, 1, t.Column) should only report t.Column
+                ColumnReferences.Add(node);
 
             base.ExplicitVisit(node);
         }

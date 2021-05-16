@@ -1,4 +1,5 @@
-﻿using NUnit.Framework;
+﻿using System.Linq;
+using NUnit.Framework;
 
 namespace SqlInliner.Tests
 {
@@ -140,6 +141,42 @@ namespace SqlInliner.Tests
             Assert.IsFalse(result.ConvertedSql.Contains("dbo.VNestedPeople"));
             Assert.IsFalse(result.ConvertedSql.Contains("UnusedFunction"));
             Assert.IsTrue(result.ConvertedSql.Contains("p2"));
+        }
+
+        [Test]
+        public void WarningForSinglePartIdentifiers()
+        {
+            const string viewSql = "CREATE OR ALTER VIEW dbo.VActivePeople AS SELECT Id, FirstName, LastName FROM dbo.VNestedPeople";
+
+            var inliner = new DatabaseViewInliner(connection, viewSql, options);
+            Assert.AreEqual(0, inliner.Errors.Count);
+            Assert.AreNotEqual(0, inliner.Warnings.Count);
+            Assert.AreNotEqual(viewSql, inliner.Sql);
+        }
+
+        [Test]
+        public void CountColumnReferences()
+        {
+            const string viewSql = "CREATE VIEW dbo.VActivePeople AS SELECT p.Id, p.FirstName, p.LastName, 'hardcoded' Ignored FROM dbo.VPeople p WHERE p.IsActive = 1";
+
+            var (view, errors) = DatabaseView.FromSql(connection, viewSql);
+            Assert.AreEqual(0, errors.Count);
+            Assert.IsNotNull(view);
+
+            Assert.AreEqual(4, view.References.ColumnReferences.Count);
+        }
+
+        [Test]
+        public void CountColumnReferencesSkipParametersToIgnore()
+        {
+            const string viewSql = "CREATE VIEW dbo.VActivePeople AS SELECT CONVERT(varchar, p.Id) Id, dateadd(day, 1, p.DayOfBirth) DayOfBirth, CAST(10.5 AS INT) Number FROM dbo.VPeople p";
+
+            var (view, errors) = DatabaseView.FromSql(connection, viewSql);
+            Assert.AreEqual(0, errors.Count);
+            Assert.IsNotNull(view);
+
+            Assert.AreEqual(2, view.References.ColumnReferences.Count(r => r.MultiPartIdentifier[0].Value == "p"));
+            Assert.AreEqual(2, view.References.ColumnReferences.Count);
         }
     }
 }
