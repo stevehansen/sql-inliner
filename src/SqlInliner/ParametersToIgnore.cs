@@ -16,7 +16,11 @@ namespace SqlInliner
             { "DATENAME", new[] { 0 } },
         };
 
-        public static bool HasIgnoredParameters(string functionName, [NotNullWhen(true)] out int[]? indexes)
+        public static bool HasIgnoredParameters(string functionName,
+#if NET5_0_OR_GREATER
+            [NotNullWhen(true)]
+#endif
+            out int[]? indexes)
         {
             return parameterIndexesToIgnore.TryGetValue(functionName, out indexes);
         }

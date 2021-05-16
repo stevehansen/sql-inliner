@@ -1,7 +1,12 @@
-﻿using Microsoft.SqlServer.TransactSql.ScriptDom;
+﻿using System.ComponentModel;
+using Microsoft.SqlServer.TransactSql.ScriptDom;
 
 namespace SqlInliner
 {
+    /// <summary>
+    /// Provides additional extension methods for <see cref="SchemaObjectName"/>.
+    /// </summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public static class SchemaObjectNameEx
     {
         /// <summary>

@@ -9,7 +9,7 @@ namespace SqlInliner
     /// <remarks>
     /// ScriptDom nodes have no concept of a parent node so we always need to start from the parent and check for the specific children.
     /// </remarks>
-    public sealed class TableInlineVisitor : TSqlFragmentVisitor
+    internal sealed class TableInlineVisitor : TSqlFragmentVisitor
     {
         private readonly Dictionary<TableReference, TableReference> toReplace;
         private readonly List<TableReference> toRemove;

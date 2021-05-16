@@ -12,8 +12,14 @@ namespace SqlInliner
     [DebuggerDisplay("{" + nameof(ViewName) + "}")]
     public sealed class DatabaseView
     {
+        /// <summary>
+        /// Marker that is added inside the comment to indicate the begin of the original SQL view definition.
+        /// </summary>
         public const string BeginOriginal = "-- BEGIN ORIGINAL SQL VIEW --";
 
+        /// <summary>
+        /// Marker that is added inside the comment to indicate the end of the original SQL view definition.
+        /// </summary>
         public const string EndOriginal = "-- END ORIGINAL SQL VIEW --";
 
         private static readonly TSql150Parser parser = new(true, SqlEngineType.All); // TODO: Configure which parser to use?
@@ -30,8 +36,14 @@ namespace SqlInliner
         /// </summary>
         public string ViewName { get; }
 
+        /// <summary>
+        /// Gets the parsed tree of the view.
+        /// </summary>
         public TSqlFragment Tree { get; }
 
+        /// <summary>
+        /// Gets additional information about the parsed tree.
+        /// </summary>
         public ReferencesVisitor References { get; }
 
         /// <summary>

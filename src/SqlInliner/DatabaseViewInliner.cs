@@ -14,6 +14,9 @@ namespace SqlInliner
         private readonly DatabaseConnection connection;
         private readonly InlinerOptions options;
 
+        /// <summary>
+        /// Creates a new instance of <see cref="DatabaseViewInliner"/>.
+        /// </summary>
         public DatabaseViewInliner(DatabaseConnection connection, string viewSql, InlinerOptions? options = null)
         {
             this.connection = connection;

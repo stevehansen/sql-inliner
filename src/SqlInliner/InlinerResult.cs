@@ -3,9 +3,12 @@ using System.Collections.Generic;
 
 namespace SqlInliner
 {
+    /// <summary>
+    /// Gets extra information from inlining the SQL view.
+    /// </summary>
     public sealed class InlinerResult
     {
-        public InlinerResult(DatabaseViewInliner inliner, TimeSpan elapsed, string originalSql, Dictionary<string, DatabaseView> knownViews, string convertedSql)
+        internal InlinerResult(DatabaseViewInliner inliner, TimeSpan elapsed, string originalSql, Dictionary<string, DatabaseView> knownViews, string convertedSql)
         {
             Elapsed = elapsed;
             KnownViews = knownViews;

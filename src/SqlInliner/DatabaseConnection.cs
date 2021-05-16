@@ -16,6 +16,9 @@ namespace SqlInliner
 
         private readonly Dictionary<string, string> viewDefinitions = new();
 
+        /// <summary>
+        /// Creates a new instance of <see cref="DatabaseConnection"/> that will use the specified <paramref name="connection"/> to get information about views.
+        /// </summary>
         public DatabaseConnection(IDbConnection connection)
         {
             Connection = connection;
@@ -26,11 +29,17 @@ namespace SqlInliner
                 .ToList();
         }
 
+        /// <summary>
+        /// Creates a new instance of <see cref="DatabaseConnection"/>.
+        /// </summary>
         public DatabaseConnection()
         {
             Views = new();
         }
 
+        /// <summary>
+        /// Gets the optional database connection to fetch view information from.
+        /// </summary>
         public IDbConnection? Connection { get; }
 
         /// <summary>
@@ -92,6 +101,9 @@ namespace SqlInliner
             public string Name { get; set; } = null!;
         }
 
+        /// <summary>
+        /// Creates a <see cref="SchemaObjectName"/> for the specified <paramref name="schema"/> and <paramref name="name"/>.
+        /// </summary>
         public static SchemaObjectName ToObjectName(string schema, string name)
         {
             var objectName = new SchemaObjectName();

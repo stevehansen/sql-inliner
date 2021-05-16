@@ -7,7 +7,7 @@ namespace SqlInliner.Tests
     {
         private DatabaseConnection connection;
 
-        private readonly InlinerOptions options = new() { StripUnusedJoins = true };
+        private readonly InlinerOptions options = InlinerOptions.Recommended();
 
         [SetUp]
         public void Setup()
