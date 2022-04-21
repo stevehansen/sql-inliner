@@ -42,7 +42,7 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="System.CommandLine" Version="2.0.0-beta1.21216.1" Condition="'$(Configuration)' != 'ReleaseLibrary'" />
+    <PackageReference Include="System.CommandLine" Version="2.0.0-beta3.22114.1" Condition="'$(Configuration)' != 'ReleaseLibrary'" />
     <PackageReference Include="ThisAssembly.AssemblyInfo" Version="1.0.9">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
