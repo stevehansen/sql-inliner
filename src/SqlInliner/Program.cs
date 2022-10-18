@@ -4,6 +4,7 @@ using System;
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.IO;
+using System.Threading.Tasks;
 using Microsoft.Data.SqlClient;
 
 namespace SqlInliner
@@ -12,18 +13,24 @@ namespace SqlInliner
     {
         private static int Main(string[] args)
         {
+            var connectionStringOption = new Option<string>(new[] { "--connection-string", "-cs" }, "Contains the connection string to connect to the database");
+            var viewNameOption = new Option<string>(new[] { "--view-name", "-vn" }, "The name of the view to inline");
+            var viewPathOption = new Option<FileInfo>(new[] { "--view-path", "-vp" }, "The path of the view as a .sql file (including create statement)");
+            var stripUnusedColumnsOption = new Option<bool>(new[] { "--strip-unused-columns", "-suc" }, () => true);
+            var stripUnusedJoinsOption = new Option<bool>(new[] { "--strip-unused-joins", "-suj" });
+            var generateCreateOrAlterOption = new Option<bool>("--generate-create-or-alter", () => true);
             var rootCommand = new RootCommand(ThisAssembly.AppName)
             {
-                new Option<string>(new[] { "--connection-string", "-cs" }, "Contains the connection string to connect to the database"),
-                new Option<string>(new[] { "--view-name", "-vn" }, "The name of the view to inline"),
-                new Option<FileInfo>(new[] { "--view-path", "-vp" }, "The path of the view as a .sql file (including create statement)"),
-                new Option<bool>(new[] { "--strip-unused-columns", "-suc" }, () => true),
-                new Option<bool>(new[] { "--strip-unused-joins", "-suj" }),
-                new Option<bool>("--generate-create-or-alter", () => true),
+                connectionStringOption,
+                viewNameOption,
+                viewPathOption,
+                stripUnusedColumnsOption,
+                stripUnusedJoinsOption,
+                generateCreateOrAlterOption,
                 // TODO: DatabaseView.parser (hardcoded to TSql150Parser)
             };
 
-            rootCommand.Handler = CommandHandler.Create<string, string?, FileInfo?, bool, bool, bool>((connectionString, viewName, viewPath, stripUnusedColumns, stripUnusedJoins, generateCreateOrAlter) =>
+            rootCommand.SetHandler((connectionString, viewName, viewPath, stripUnusedColumns, stripUnusedJoins, generateCreateOrAlter) =>
             {
                 var cs = new SqlConnectionStringBuilder(connectionString);
                 if (!cs.ContainsKey(nameof(cs.ApplicationName)))
@@ -52,8 +59,8 @@ namespace SqlInliner
                 });
 
                 Console.WriteLine(inliner.Sql);
-                return inliner.Errors.Count > 0 ? -1 : 0;
-            });
+                //return inliner.Errors.Count > 0 ? -1 : 0;
+            }, connectionStringOption, viewNameOption, viewPathOption, stripUnusedColumnsOption, stripUnusedJoinsOption, generateCreateOrAlterOption);
 
             return rootCommand.Invoke(args);
         }
