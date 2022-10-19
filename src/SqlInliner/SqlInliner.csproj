@@ -43,10 +43,10 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" Condition="'$(Configuration)' != 'ReleaseLibrary'" />
-    <PackageReference Include="ThisAssembly.AssemblyInfo" Version="1.0.9">
+    <PackageReference Include="ThisAssembly.AssemblyInfo" Version="1.0.10">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="ThisAssembly.Metadata" Version="1.0.9">
+    <PackageReference Include="ThisAssembly.Metadata" Version="1.0.10">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
   </ItemGroup>
