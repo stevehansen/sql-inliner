@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFrameworks>net6.0</TargetFrameworks>
+    <TargetFrameworks>net8.0</TargetFrameworks>
     <LangVersion>10.0</LangVersion>
     <Nullable>enable</Nullable>
     <Configurations>Debug;Release;ReleaseLibrary</Configurations>
@@ -27,26 +27,28 @@
 
   <PropertyGroup Condition="'$(Configuration)' == 'ReleaseLibrary'">
     <OutputType>Library</OutputType>
-    <TargetFrameworks>net472;netstandard2.0;netcoreapp3.1;net5.0</TargetFrameworks>
+    <TargetFrameworks>net472;netstandard2.0;netcoreapp3.1;net6.0;net8.0</TargetFrameworks>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Dapper" Version="2.1.15" />
-    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.1.1">
+    <PackageReference Include="Dapper" Version="2.1.35" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.SqlServer.DacFx" Version="162.1.167" />
+    <PackageReference Include="Microsoft.SqlServer.DacFx" Version="162.4.92" />
     <PackageReference Include="MinVer" Version="4.3.0">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" Condition="'$(Configuration)' != 'ReleaseLibrary'" />
-    <PackageReference Include="ThisAssembly.AssemblyInfo" Version="1.2.14">
+    <PackageReference Include="System.Formats.Asn1" Version="8.0.1" />
+    <PackageReference Include="System.IO.Packaging" Version="8.0.1" />
+    <PackageReference Include="ThisAssembly.AssemblyInfo" Version="2.0.5">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="ThisAssembly.Metadata" Version="1.2.14">
+    <PackageReference Include="ThisAssembly.Metadata" Version="2.0.5">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
   </ItemGroup>
