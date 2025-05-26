@@ -72,3 +72,12 @@ select * from dbo.VHeavy_v2 except select * from dbo.VHeavy
 ```
 
 Should return 0 results for both queries.
+
+## Security considerations
+
+`sql-inliner` retrieves view definitions by interpolating the provided view name
+directly into a SQL statement. If untrusted input is used for the view name, this
+query could be exploited for SQL injection. The tool is normally executed by a
+trusted user who also specifies the connection string, so the risk is low, but
+**only supply view names from trusted sources or sanitize them before running the
+tool.**
