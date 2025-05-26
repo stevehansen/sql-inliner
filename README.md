@@ -34,6 +34,13 @@ The application will output the new create or alter view statement that can be u
 The generated statement will include a starting comment containing the original statement (can be used to restore the original code) which is also used when the view is reused in other views to start working from the original statement.
 Other included information will be the different views that were used, how many select columns and joins that were stripped.
 
+### Additional options
+
+Two optional parameters can be used to control where the generated SQL and debug information are written:
+
+* `--output-path` (`-op`) – write the resulting SQL to the specified file instead of the console.
+* `--log-path` (`-lp`) – write warnings, errors and timing information to the given file. When not provided these details are written to the console.
+
 ## Verifying the generated code
 
 **Always** verify the SQL by comparing it with the old code.
