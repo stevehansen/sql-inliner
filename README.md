@@ -7,6 +7,16 @@ For instance, when a nested view pulls in more data than required, it leads to l
 
 > **Always verify the generated code manually before deploying to a production database**
 
+## Installation
+
+Install the application as a [.NET tool](https://learn.microsoft.com/dotnet/core/tools/) using:
+
+```bash
+dotnet tool install --global sqlinliner
+```
+
+This registers the `sqlinliner` command globally so it can be used from any directory.
+
 ## Example usage
 
 Using integrated security on a local SQL Server instance:
@@ -44,6 +54,13 @@ script or when comparing different versions of the SQL.
 This variant keeps every join from nested views but will still remove unused
 columns. It can be handy when you want the view expanded but prefer to control
 join optimization yourself.
+
+### Additional options
+
+Two optional parameters can be used to control where the generated SQL and debug information are written:
+
+* `--output-path` (`-op`) – write the resulting SQL to the specified file instead of the console.
+* `--log-path` (`-lp`) – write warnings, errors and timing information to the given file. When not provided these details are written to the console.
 
 ## Verifying the generated code
 
