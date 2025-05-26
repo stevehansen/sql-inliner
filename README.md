@@ -27,9 +27,9 @@ Other included information will be the different views that were used, how many 
 ### Using a view definition from a local file
 ``sqlinliner -vp "./views/MyView.sql" --strip-unused-joins``
 
-This scenario inlines the view defined in `MyView.sql`. When only a file path
-is specified the tool uses the exact contents of the file. If a connection
-string is supplied as well, referenced views are fetched from the database.
+This scenario inlines the view defined in `MyView.sql`, with unused join stripping enabled (via `--strip-unused-joins`).
+When a file path is specified for the main view, the tool uses the exact contents of that file. If a connection
+string is also supplied, any views referenced *within* `MyView.sql` are fetched from the database.
 
 ### Disabling the CREATE OR ALTER wrapper
 ``sqlinliner -vp "./views/MyView.sql" --generate-create-or-alter false``
