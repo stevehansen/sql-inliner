@@ -7,6 +7,16 @@ For instance, when a nested view pulls in more data than required, it leads to l
 
 > **Always verify the generated code manually before deploying to a production database**
 
+## Installation
+
+Install the application as a [.NET tool](https://learn.microsoft.com/dotnet/core/tools/) using:
+
+```bash
+dotnet tool install --global sqlinliner
+```
+
+This registers the `sqlinliner` command globally so it can be used from any directory.
+
 ## Example usage
 
 Using integrated security on a local SQL Server instance:
