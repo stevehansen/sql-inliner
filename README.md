@@ -7,6 +7,16 @@ For instance, when a nested view pulls in more data than required, it leads to l
 
 > **Always verify the generated code manually before deploying to a production database**
 
+## Installation
+
+Install the application as a [.NET tool](https://learn.microsoft.com/dotnet/core/tools/) using:
+
+```bash
+dotnet tool install --global sqlinliner
+```
+
+This registers the `sqlinliner` command globally so it can be used from any directory.
+
 ## Example usage
 
 Using integrated security on a local SQL Server instance:
@@ -23,6 +33,34 @@ A connection will be made using SQL Server login and password.
 The application will output the new create or alter view statement that can be used on the database to create the improved version of the original view.
 The generated statement will include a starting comment containing the original statement (can be used to restore the original code) which is also used when the view is reused in other views to start working from the original statement.
 Other included information will be the different views that were used, how many select columns and joins that were stripped.
+
+### Using a view definition from a local file
+``sqlinliner -vp "./views/MyView.sql" --strip-unused-joins``
+
+This scenario inlines the view defined in `MyView.sql`, with unused join stripping enabled (via `--strip-unused-joins`).
+When a file path is specified for the main view, the tool uses the exact contents of that file. If a connection
+string is also supplied, any views referenced *within* `MyView.sql` are fetched from the database.
+
+### Disabling the CREATE OR ALTER wrapper
+``sqlinliner -vp "./views/MyView.sql" --generate-create-or-alter false``
+
+Pass `--generate-create-or-alter false` when you only need the inlined `SELECT`
+statement. This can be useful when embedding the statement inside a larger
+script or when comparing different versions of the SQL.
+
+### Keeping all joins in the final statement
+``sqlinliner -cs "Server=.;Database=Test;Integrated Security=true" -vn "dbo.VHeavy" --strip-unused-joins false``
+
+This variant keeps every join from nested views but will still remove unused
+columns. It can be handy when you want the view expanded but prefer to control
+join optimization yourself.
+
+### Additional options
+
+Two optional parameters can be used to control where the generated SQL and debug information are written:
+
+* `--output-path` (`-op`) – write the resulting SQL to the specified file instead of the console.
+* `--log-path` (`-lp`) – write warnings, errors and timing information to the given file. When not provided these details are written to the console.
 
 ## Verifying the generated code
 

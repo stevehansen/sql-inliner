@@ -5,6 +5,8 @@
     <TargetFrameworks>net8.0</TargetFrameworks>
     <LangVersion>10.0</LangVersion>
     <Nullable>enable</Nullable>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>sqlinliner</ToolCommandName>
     <Configurations>Debug;Release;ReleaseLibrary</Configurations>
     <Version>0.0.0</Version>
     <Product>SQL inliner</Product>
@@ -32,7 +34,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Dapper" Version="2.1.35" />
+    <PackageReference Include="Dapper" Version="2.1.66" />
     <PackageReference Include="Microsoft.SqlServer.DacFx" Version="162.4.92" />
     <PackageReference Include="MinVer" Version="4.3.0">
       <PrivateAssets>all</PrivateAssets>

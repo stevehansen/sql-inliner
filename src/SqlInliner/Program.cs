@@ -17,6 +17,8 @@ internal static class Program
         var stripUnusedColumnsOption = new Option<bool>(new[] { "--strip-unused-columns", "-suc" }, () => true);
         var stripUnusedJoinsOption = new Option<bool>(new[] { "--strip-unused-joins", "-suj" });
         var generateCreateOrAlterOption = new Option<bool>("--generate-create-or-alter", () => true);
+        var outputPathOption = new Option<FileInfo?>(new[] { "--output-path", "-op" }, "Optional path of the file to write the resulting SQL to");
+        var logPathOption = new Option<FileInfo?>(new[] { "--log-path", "-lp" }, "Optional path of the file to write debug information to");
         var rootCommand = new RootCommand(ThisAssembly.AppName)
             {
                 connectionStringOption,
@@ -25,10 +27,12 @@ internal static class Program
                 stripUnusedColumnsOption,
                 stripUnusedJoinsOption,
                 generateCreateOrAlterOption,
+                outputPathOption,
+                logPathOption,
                 // TODO: DatabaseView.parser (hardcoded to TSql150Parser)
             };
 
-        rootCommand.SetHandler((connectionString, viewName, viewPath, stripUnusedColumns, stripUnusedJoins, generateCreateOrAlter) =>
+        rootCommand.SetHandler((connectionString, viewName, viewPath, stripUnusedColumns, stripUnusedJoins, generateCreateOrAlter, outputPath, logPath) =>
         {
             var cs = new SqlConnectionStringBuilder(connectionString);
             if (!cs.ContainsKey(nameof(cs.ApplicationName)))
@@ -56,9 +60,21 @@ internal static class Program
                 StripUnusedJoins = stripUnusedJoins,
             });
 
-            Console.WriteLine(inliner.Sql);
+            if (outputPath != null)
+                File.WriteAllText(outputPath.FullName, inliner.Sql);
+            else
+                Console.WriteLine(inliner.Sql);
+
+            if (logPath != null)
+            {
+                var result = inliner.Result;
+                var log = $"Elapsed: {result?.Elapsed}\n" +
+                          $"Warnings ({inliner.Warnings.Count}):\n{string.Join("\n", inliner.Warnings)}\n" +
+                          $"Errors ({inliner.Errors.Count}):\n{string.Join("\n", inliner.Errors)}\n";
+                File.WriteAllText(logPath.FullName, log);
+            }
             //return inliner.Errors.Count > 0 ? -1 : 0;
-        }, connectionStringOption, viewNameOption, viewPathOption, stripUnusedColumnsOption, stripUnusedJoinsOption, generateCreateOrAlterOption);
+        }, connectionStringOption, viewNameOption, viewPathOption, stripUnusedColumnsOption, stripUnusedJoinsOption, generateCreateOrAlterOption, outputPathOption, logPathOption);
 
         return rootCommand.Invoke(args);
     }
