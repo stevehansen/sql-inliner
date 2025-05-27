@@ -57,10 +57,11 @@ join optimization yourself.
 
 ### Additional options
 
-Two optional parameters can be used to control where the generated SQL and debug information are written:
+Several optional parameters can be used to control where the generated SQL and debug information are written:
 
 * `--output-path` (`-op`) – write the resulting SQL to the specified file instead of the console.
 * `--log-path` (`-lp`) – write warnings, errors and timing information to the given file. When not provided these details are written to the console.
+* `--dry-run` (`-dr`) – list all referenced views recursively without outputting the inlined SQL.
 
 ## Verifying the generated code
 

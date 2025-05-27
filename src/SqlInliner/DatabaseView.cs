@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.Diagnostics;
+using System;
 using System.IO;
 using System.Text.RegularExpressions;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
@@ -82,5 +83,43 @@ public sealed class DatabaseView
     public static string CreateOrAlter(string viewSql)
     {
         return Regex.Replace(viewSql, @"\bCREATE\b\s+VIEW", "CREATE OR ALTER VIEW", RegexOptions.IgnoreCase);
+    }
+
+    /// <summary>
+    /// Returns all referenced views recursively, including the view defined by
+    /// <paramref name="viewSql"/> itself.
+    /// </summary>
+    public static Dictionary<string, DatabaseView> GetReferencedViews(DatabaseConnection connection, string viewSql)
+    {
+        var (view, errors) = FromSql(connection, viewSql);
+        if (view == null || errors.Count > 0)
+            return new();
+
+        var knownViews = new Dictionary<string, DatabaseView>(StringComparer.OrdinalIgnoreCase)
+        {
+            { view.ViewName, view }
+        };
+
+        void AddView(NamedTableReference viewReference)
+        {
+            var viewName = viewReference.SchemaObject.GetName();
+            if (knownViews.ContainsKey(viewName))
+                return;
+
+            var referencedDefinition = connection.GetViewDefinition(viewName);
+            var (referencedView, _) = FromSql(connection, referencedDefinition);
+            if (referencedView == null)
+                return;
+
+            knownViews[viewName] = referencedView;
+
+            foreach (var nested in referencedView.References.Views)
+                AddView(nested);
+        }
+
+        foreach (var reference in view.References.Views)
+            AddView(reference);
+
+        return knownViews;
     }
 }
