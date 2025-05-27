@@ -17,6 +17,7 @@ internal static class Program
         var stripUnusedColumnsOption = new Option<bool>(new[] { "--strip-unused-columns", "-suc" }, () => true);
         var stripUnusedJoinsOption = new Option<bool>(new[] { "--strip-unused-joins", "-suj" });
         var generateCreateOrAlterOption = new Option<bool>("--generate-create-or-alter", () => true);
+        var dryRunOption = new Option<bool>(new[] { "--dry-run", "-dr" }, "List referenced views recursively and exit");
         var outputPathOption = new Option<FileInfo?>(new[] { "--output-path", "-op" }, "Optional path of the file to write the resulting SQL to");
         var logPathOption = new Option<FileInfo?>(new[] { "--log-path", "-lp" }, "Optional path of the file to write debug information to");
         var rootCommand = new RootCommand(ThisAssembly.AppName)
@@ -27,13 +28,24 @@ internal static class Program
                 stripUnusedColumnsOption,
                 stripUnusedJoinsOption,
                 generateCreateOrAlterOption,
+                dryRunOption,
                 outputPathOption,
                 logPathOption,
                 // TODO: DatabaseView.parser (hardcoded to TSql150Parser)
             };
 
-        rootCommand.SetHandler((connectionString, viewName, viewPath, stripUnusedColumns, stripUnusedJoins, generateCreateOrAlter, outputPath, logPath) =>
+        rootCommand.SetHandler(context =>
         {
+            var connectionString = context.ParseResult.GetValueForOption(connectionStringOption) ?? string.Empty;
+            var viewName = context.ParseResult.GetValueForOption(viewNameOption);
+            var viewPath = context.ParseResult.GetValueForOption(viewPathOption);
+            var stripUnusedColumns = context.ParseResult.GetValueForOption(stripUnusedColumnsOption);
+            var stripUnusedJoins = context.ParseResult.GetValueForOption(stripUnusedJoinsOption);
+            var generateCreateOrAlter = context.ParseResult.GetValueForOption(generateCreateOrAlterOption);
+            var dryRun = context.ParseResult.GetValueForOption(dryRunOption);
+            var outputPath = context.ParseResult.GetValueForOption(outputPathOption);
+            var logPath = context.ParseResult.GetValueForOption(logPathOption);
+
             var cs = new SqlConnectionStringBuilder(connectionString);
             if (!cs.ContainsKey(nameof(cs.ApplicationName)))
             {
@@ -53,6 +65,14 @@ internal static class Program
 
             if (generateCreateOrAlter)
                 viewSql = DatabaseView.CreateOrAlter(viewSql);
+
+            if (dryRun)
+            {
+                var views = DatabaseView.GetReferencedViews(connection, viewSql);
+                foreach (var name in views.Keys)
+                    Console.WriteLine(name);
+                return;
+            }
 
             var inliner = new DatabaseViewInliner(connection, viewSql, new()
             {
@@ -74,7 +94,7 @@ internal static class Program
                 File.WriteAllText(logPath.FullName, log);
             }
             //return inliner.Errors.Count > 0 ? -1 : 0;
-        }, connectionStringOption, viewNameOption, viewPathOption, stripUnusedColumnsOption, stripUnusedJoinsOption, generateCreateOrAlterOption, outputPathOption, logPathOption);
+        });
 
         return rootCommand.Invoke(args);
     }
