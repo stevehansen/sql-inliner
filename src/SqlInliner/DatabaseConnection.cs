@@ -111,4 +111,18 @@ public sealed class DatabaseConnection
         objectName.Identifiers.Add(new() { Value = name });
         return objectName;
     }
+
+    /// <summary>
+    /// Parses a two-part view name (<c>schema.name</c>) into a
+    /// <see cref="SchemaObjectName"/> instance.
+    /// </summary>
+    public static SchemaObjectName ParseObjectName(string name)
+    {
+        var parts = name.Split('.', 2);
+        return parts.Length switch
+        {
+            1 => ToObjectName("dbo", parts[0]),
+            _ => ToObjectName(parts[0], parts[1]),
+        };
+    }
 }

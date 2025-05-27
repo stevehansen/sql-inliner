@@ -46,4 +46,18 @@ public class AdditionalTests
         Assert.IsNotNull(referenced.Alias);
         Assert.AreEqual("VPeople", referenced.Alias!.Value);
     }
+
+    [Test]
+    public void ParseObjectNameDefaultsSchema()
+    {
+        var name = DatabaseConnection.ParseObjectName("VTest");
+        Assert.AreEqual("[dbo].[VTest]", name.GetName());
+    }
+
+    [Test]
+    public void ParseObjectNameWithSchema()
+    {
+        var name = DatabaseConnection.ParseObjectName("custom.VTest");
+        Assert.AreEqual("[custom].[VTest]", name.GetName());
+    }
 }
