@@ -64,7 +64,16 @@ internal static class Program
             {
                 var baseDir = viewsConfig.Directory?.FullName ?? Environment.CurrentDirectory;
                 var data = File.ReadAllText(viewsConfig.FullName);
-                var views = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(data) ?? new();
+                Dictionary<string, string> views;
+                try
+                {
+                    views = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(data) ?? new();
+                }
+                catch (System.Text.Json.JsonException ex)
+                {
+                    Console.Error.WriteLine($"Error: The config file '{viewsConfig.FullName}' contains invalid JSON: {ex.Message}");
+                    return;
+                }
                 foreach (var kvp in views)
                 {
                     var path = kvp.Value;
