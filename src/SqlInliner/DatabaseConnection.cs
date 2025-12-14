@@ -118,11 +118,28 @@ public sealed class DatabaseConnection
     /// </summary>
     public static SchemaObjectName ParseObjectName(string name)
     {
-        var parts = name.Split('.', 2);
-        return parts.Length switch
+        if (string.IsNullOrWhiteSpace(name))
+            throw new ArgumentException("Object name must not be null, empty, or whitespace.", nameof(name));
+
+        var parts = name.Split('.');
+        if (parts.Length == 1)
         {
-            1 => ToObjectName("dbo", parts[0]),
-            _ => ToObjectName(parts[0], parts[1]),
-        };
+            var trimmedName = parts[0].Trim();
+            if (string.IsNullOrEmpty(trimmedName))
+                throw new ArgumentException("Object name must not be empty or whitespace.", nameof(name));
+            return ToObjectName("dbo", trimmedName);
+        }
+        else if (parts.Length == 2)
+        {
+            var schema = parts[0].Trim();
+            var objName = parts[1].Trim();
+            if (string.IsNullOrEmpty(schema) || string.IsNullOrEmpty(objName))
+                throw new ArgumentException("Schema and object name must not be empty or whitespace.", nameof(name));
+            return ToObjectName(schema, objName);
+        }
+        else
+        {
+            throw new ArgumentException("Object name must be a valid one or two-part name (schema.name or name).", nameof(name));
+        }
     }
 }
