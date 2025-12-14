@@ -46,4 +46,21 @@ public class AdditionalTests
         Assert.IsNotNull(referenced.Alias);
         Assert.AreEqual("VPeople", referenced.Alias!.Value);
     }
+
+    [Test]
+    public void GetReferencedViewsReturnsAllViews()
+    {
+        var connection = new DatabaseConnection();
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VBase"), "CREATE VIEW dbo.VBase AS SELECT 1 Col");
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VMid"), "CREATE VIEW dbo.VMid AS SELECT Col FROM dbo.VBase");
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VTop"), "CREATE VIEW dbo.VTop AS SELECT Col FROM dbo.VMid");
+
+        var sql = connection.GetViewDefinition("[dbo].[VTop]");
+        var views = DatabaseView.GetReferencedViews(connection, sql);
+
+        Assert.AreEqual(3, views.Count);
+        Assert.IsTrue(views.ContainsKey("[dbo].[VTop]"));
+        Assert.IsTrue(views.ContainsKey("[dbo].[VMid]"));
+        Assert.IsTrue(views.ContainsKey("[dbo].[VBase]"));
+    }
 }
