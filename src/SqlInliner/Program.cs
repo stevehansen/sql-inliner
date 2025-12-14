@@ -80,7 +80,16 @@ internal static class Program
                     if (!Path.IsPathRooted(path))
                         path = Path.Combine(baseDir, path);
 
-                    var sql = File.ReadAllText(path);
+                    string sql;
+                    try
+                    {
+                        sql = File.ReadAllText(path);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"Error reading view definition file '{path}': {ex.Message}");
+                        return -1;
+                    }
                     connection.AddViewDefinition(DatabaseConnection.ParseObjectName(kvp.Key), sql);
                 }
             }
