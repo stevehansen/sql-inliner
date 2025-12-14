@@ -4,6 +4,8 @@ using Microsoft.Data.SqlClient;
 using System;
 using System.CommandLine;
 using System.IO;
+using System.Text.Json;
+using System.Collections.Generic;
 
 namespace SqlInliner;
 
@@ -16,6 +18,8 @@ internal static class Program
         var viewPathOption = new Option<FileInfo>(new[] { "--view-path", "-vp" }, "The path of the view as a .sql file (including create statement)");
         var stripUnusedColumnsOption = new Option<bool>(new[] { "--strip-unused-columns", "-suc" }, () => true);
         var stripUnusedJoinsOption = new Option<bool>(new[] { "--strip-unused-joins", "-suj" });
+        var viewsConfigOption = new Option<FileInfo?>(new[] { "--views-config", "-vc" },
+            "Optional path to a JSON file describing additional view definitions");
         var generateCreateOrAlterOption = new Option<bool>("--generate-create-or-alter", () => true);
         var outputPathOption = new Option<FileInfo?>(new[] { "--output-path", "-op" }, "Optional path of the file to write the resulting SQL to");
         var logPathOption = new Option<FileInfo?>(new[] { "--log-path", "-lp" }, "Optional path of the file to write debug information to");
@@ -29,11 +33,24 @@ internal static class Program
                 generateCreateOrAlterOption,
                 outputPathOption,
                 logPathOption,
+                viewsConfigOption,
                 // TODO: DatabaseView.parser (hardcoded to TSql150Parser)
             };
 
-        rootCommand.SetHandler((connectionString, viewName, viewPath, stripUnusedColumns, stripUnusedJoins, generateCreateOrAlter, outputPath, logPath) =>
+        rootCommand.SetHandler(context =>
         {
+            var parse = context.ParseResult;
+
+            var connectionString = parse.GetValueForOption(connectionStringOption)!;
+            var viewName = parse.GetValueForOption(viewNameOption);
+            var viewPath = parse.GetValueForOption(viewPathOption);
+            var stripUnusedColumns = parse.GetValueForOption(stripUnusedColumnsOption);
+            var stripUnusedJoins = parse.GetValueForOption(stripUnusedJoinsOption);
+            var generateCreateOrAlter = parse.GetValueForOption(generateCreateOrAlterOption);
+            var outputPath = parse.GetValueForOption(outputPathOption);
+            var logPath = parse.GetValueForOption(logPathOption);
+            var viewsConfig = parse.GetValueForOption(viewsConfigOption);
+
             var cs = new SqlConnectionStringBuilder(connectionString);
             if (!cs.ContainsKey(nameof(cs.ApplicationName)))
             {
@@ -42,6 +59,40 @@ internal static class Program
             }
 
             var connection = new DatabaseConnection(new SqlConnection(connectionString));
+
+            if (viewsConfig != null)
+            {
+                var baseDir = viewsConfig.Directory?.FullName ?? Environment.CurrentDirectory;
+                var data = File.ReadAllText(viewsConfig.FullName);
+                Dictionary<string, string> views;
+                try
+                {
+                    views = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(data) ?? new();
+                }
+                catch (System.Text.Json.JsonException ex)
+                {
+                    Console.Error.WriteLine($"Error: The config file '{viewsConfig.FullName}' contains invalid JSON: {ex.Message}");
+                    return;
+                }
+                foreach (var kvp in views)
+                {
+                    var path = kvp.Value;
+                    if (!Path.IsPathRooted(path))
+                        path = Path.Combine(baseDir, path);
+
+                    string sql;
+                    try
+                    {
+                        sql = File.ReadAllText(path);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"Error reading view definition file '{path}': {ex.Message}");
+                        return -1;
+                    }
+                    connection.AddViewDefinition(DatabaseConnection.ParseObjectName(kvp.Key), sql);
+                }
+            }
 
             string viewSql;
             if (!string.IsNullOrEmpty(viewName))
@@ -74,7 +125,7 @@ internal static class Program
                 File.WriteAllText(logPath.FullName, log);
             }
             //return inliner.Errors.Count > 0 ? -1 : 0;
-        }, connectionStringOption, viewNameOption, viewPathOption, stripUnusedColumnsOption, stripUnusedJoinsOption, generateCreateOrAlterOption, outputPathOption, logPathOption);
+        });
 
         return rootCommand.Invoke(args);
     }

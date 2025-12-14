@@ -41,6 +41,22 @@ This scenario inlines the view defined in `MyView.sql`, with unused join strippi
 When a file path is specified for the main view, the tool uses the exact contents of that file. If a connection
 string is also supplied, any views referenced *within* `MyView.sql` are fetched from the database.
 
+### Adding multiple view definitions from a config file
+```
+sqlinliner -vp "./views/MyView.sql" -vc "./views/views.json"
+```
+
+Provide `--views-config` with a JSON file that maps view names to `.sql` files.
+All listed views are loaded before inlining so nested local views can be
+resolved. Example:
+
+```json
+{
+  "dbo.VPeople": "VPeople.sql",
+  "dbo.VNestedPeople": "VNestedPeople.sql"
+}
+```
+
 ### Disabling the CREATE OR ALTER wrapper
 ``sqlinliner -vp "./views/MyView.sql" --generate-create-or-alter false``
 
@@ -61,6 +77,7 @@ Two optional parameters can be used to control where the generated SQL and debug
 
 * `--output-path` (`-op`) – write the resulting SQL to the specified file instead of the console.
 * `--log-path` (`-lp`) – write warnings, errors and timing information to the given file. When not provided these details are written to the console.
+* `--views-config` (`-vc`) – JSON file mapping additional view names to their local SQL files.
 
 ## Verifying the generated code
 
