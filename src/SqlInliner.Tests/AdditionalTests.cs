@@ -1,4 +1,5 @@
 using NUnit.Framework;
+using Shouldly;
 
 namespace SqlInliner.Tests;
 
@@ -9,7 +10,7 @@ public class AdditionalTests
     {
         const string viewSql = "create view dbo.V as select 1";
         var result = DatabaseView.CreateOrAlter(viewSql);
-        StringAssert.StartsWith("CREATE OR ALTER VIEW", result);
+        result.ShouldStartWith("CREATE OR ALTER VIEW");
     }
 
     [Test]
@@ -20,16 +21,16 @@ public class AdditionalTests
         const string definition = "CREATE VIEW dbo.VTest AS SELECT 1";
         connection.AddViewDefinition(viewName, definition);
 
-        Assert.IsTrue(connection.IsView(viewName));
-        Assert.AreEqual(definition, connection.GetViewDefinition(viewName.GetName()));
+        connection.IsView(viewName).ShouldBeTrue();
+        connection.GetViewDefinition(viewName.GetName()).ShouldBe(definition);
     }
 
     [Test]
     public void RecommendedOptionsEnableStripUnusedJoins()
     {
         var options = InlinerOptions.Recommended();
-        Assert.IsTrue(options.StripUnusedColumns);
-        Assert.IsTrue(options.StripUnusedJoins);
+        options.StripUnusedColumns.ShouldBeTrue();
+        options.StripUnusedJoins.ShouldBeTrue();
     }
 
     [Test]
@@ -40,10 +41,10 @@ public class AdditionalTests
 
         const string viewSql = "CREATE VIEW dbo.VTest AS SELECT Id FROM dbo.VPeople";
         var (view, errors) = DatabaseView.FromSql(connection, viewSql);
-        Assert.AreEqual(0, errors.Count);
-        Assert.IsNotNull(view);
+        errors.Count.ShouldBe(0);
+        view.ShouldNotBeNull();
         var referenced = view!.References.Views[0];
-        Assert.IsNotNull(referenced.Alias);
-        Assert.AreEqual("VPeople", referenced.Alias!.Value);
+        referenced.Alias.ShouldNotBeNull();
+        referenced.Alias!.Value.ShouldBe("VPeople");
     }
 }

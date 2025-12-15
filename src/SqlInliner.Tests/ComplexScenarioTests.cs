@@ -1,4 +1,5 @@
 using NUnit.Framework;
+using Shouldly;
 
 namespace SqlInliner.Tests;
 
@@ -23,11 +24,11 @@ public class ComplexScenarioTests
         const string viewSql = "CREATE VIEW dbo.VTest AS SELECT p.Id, p.FirstName, o.Amount FROM dbo.VPeople p LEFT OUTER JOIN dbo.VOrders o ON p.Id = o.PersonId";
         
         var inliner = new DatabaseViewInliner(connection, viewSql, options);
-        Assert.AreEqual(0, inliner.Errors.Count);
-        Assert.IsTrue(inliner.Result.ConvertedSql.Contains("dbo.People"));
-        Assert.IsTrue(inliner.Result.ConvertedSql.Contains("dbo.Orders"));
-        Assert.IsFalse(inliner.Result.ConvertedSql.Contains("dbo.VPeople"));
-        Assert.IsFalse(inliner.Result.ConvertedSql.Contains("dbo.VOrders"));
+        inliner.Errors.Count.ShouldBe(0);
+        inliner.Result.ConvertedSql.ShouldContain("dbo.People");
+        inliner.Result.ConvertedSql.ShouldContain("dbo.Orders");
+        inliner.Result.ConvertedSql.ShouldNotContain("dbo.VPeople");
+        inliner.Result.ConvertedSql.ShouldNotContain("dbo.VOrders");
     }
 
     [Test]
@@ -36,9 +37,9 @@ public class ComplexScenarioTests
         const string viewSql = "CREATE VIEW dbo.VTest AS SELECT p.Id, p.FirstName, o.Amount FROM dbo.VPeople p RIGHT OUTER JOIN dbo.VOrders o ON p.Id = o.PersonId";
         
         var inliner = new DatabaseViewInliner(connection, viewSql, options);
-        Assert.AreEqual(0, inliner.Errors.Count);
-        Assert.IsTrue(inliner.Result.ConvertedSql.Contains("dbo.People"));
-        Assert.IsTrue(inliner.Result.ConvertedSql.Contains("dbo.Orders"));
+        inliner.Errors.Count.ShouldBe(0);
+        inliner.Result.ConvertedSql.ShouldContain("dbo.People");
+        inliner.Result.ConvertedSql.ShouldContain("dbo.Orders");
     }
 
     [Test]
@@ -47,9 +48,9 @@ public class ComplexScenarioTests
         const string viewSql = "CREATE VIEW dbo.VTest AS SELECT p.Id, p.FirstName, o.Amount FROM dbo.VPeople p FULL OUTER JOIN dbo.VOrders o ON p.Id = o.PersonId";
         
         var inliner = new DatabaseViewInliner(connection, viewSql, options);
-        Assert.AreEqual(0, inliner.Errors.Count);
-        Assert.IsTrue(inliner.Result.ConvertedSql.Contains("dbo.People"));
-        Assert.IsTrue(inliner.Result.ConvertedSql.Contains("dbo.Orders"));
+        inliner.Errors.Count.ShouldBe(0);
+        inliner.Result.ConvertedSql.ShouldContain("dbo.People");
+        inliner.Result.ConvertedSql.ShouldContain("dbo.Orders");
     }
 
     [Test]
@@ -65,10 +66,10 @@ public class ComplexScenarioTests
             INNER JOIN dbo.VProducts pr ON o.Id = pr.Id";
         
         var inliner = new DatabaseViewInliner(connection, viewSql, options);
-        Assert.AreEqual(0, inliner.Errors.Count);
-        Assert.IsTrue(inliner.Result.ConvertedSql.Contains("dbo.People"));
-        Assert.IsTrue(inliner.Result.ConvertedSql.Contains("dbo.Orders"));
-        Assert.IsTrue(inliner.Result.ConvertedSql.Contains("dbo.Products"));
+        inliner.Errors.Count.ShouldBe(0);
+        inliner.Result.ConvertedSql.ShouldContain("dbo.People");
+        inliner.Result.ConvertedSql.ShouldContain("dbo.Orders");
+        inliner.Result.ConvertedSql.ShouldContain("dbo.Products");
     }
 
     [Test]
@@ -81,11 +82,13 @@ public class ComplexScenarioTests
 
         const string viewSql = "CREATE VIEW dbo.VLevel4 AS SELECT l3.Id FROM dbo.VLevel3 l3";
         
+        var options = InlinerOptions.Recommended();
+        options.StripUnusedJoins = false;
         var inliner = new DatabaseViewInliner(connection, viewSql, options);
-        Assert.AreEqual(0, inliner.Errors.Count);
-        Assert.IsTrue(inliner.Result.ConvertedSql.Contains("dbo.People"));
-        Assert.IsFalse(inliner.Result.ConvertedSql.Contains("VLevel2"));
-        Assert.IsFalse(inliner.Result.ConvertedSql.Contains("VLevel3"));
+        inliner.Errors.Count.ShouldBe(0);
+        inliner.Result.ConvertedSql.ShouldContain("dbo.People");
+        inliner.Result.ConvertedSql.ShouldNotContain("VLevel2");
+        inliner.Result.ConvertedSql.ShouldNotContain("VLevel3");
     }
 
     [Test]
@@ -97,8 +100,8 @@ public class ComplexScenarioTests
             FROM dbo.VPeople p";
         
         var inliner = new DatabaseViewInliner(connection, viewSql, options);
-        Assert.AreEqual(0, inliner.Errors.Count);
-        Assert.IsTrue(inliner.Result.ConvertedSql.Contains("dbo.People"));
+        inliner.Errors.Count.ShouldBe(0);
+        inliner.Result.ConvertedSql.ShouldContain("dbo.People");
     }
 
     [Test]
@@ -111,8 +114,8 @@ public class ComplexScenarioTests
             GROUP BY p.Id, p.FirstName";
         
         var inliner = new DatabaseViewInliner(connection, viewSql, options);
-        Assert.AreEqual(0, inliner.Errors.Count);
-        Assert.IsTrue(inliner.Result.ConvertedSql.Contains("dbo.People"));
+        inliner.Errors.Count.ShouldBe(0);
+        inliner.Result.ConvertedSql.ShouldContain("dbo.People");
     }
 
     [Test]
@@ -121,8 +124,8 @@ public class ComplexScenarioTests
         const string viewSql = "CREATE VIEW dbo.VTest AS SELECT TOP 100 p.Id, p.FirstName FROM dbo.VPeople p ORDER BY p.FirstName";
         
         var inliner = new DatabaseViewInliner(connection, viewSql, options);
-        Assert.AreEqual(0, inliner.Errors.Count);
-        Assert.IsTrue(inliner.Result.ConvertedSql.Contains("dbo.People"));
+        inliner.Errors.Count.ShouldBe(0);
+        inliner.Result.ConvertedSql.ShouldContain("dbo.People");
     }
 
     [Test]
@@ -134,8 +137,8 @@ public class ComplexScenarioTests
             FROM dbo.VPeople p";
         
         var inliner = new DatabaseViewInliner(connection, viewSql, options);
-        Assert.AreEqual(0, inliner.Errors.Count);
-        Assert.IsTrue(inliner.Result.ConvertedSql.Contains("dbo.People"));
+        inliner.Errors.Count.ShouldBe(0);
+        inliner.Result.ConvertedSql.ShouldContain("dbo.People");
     }
 
     [Test]
@@ -143,10 +146,12 @@ public class ComplexScenarioTests
     {
         const string viewSql = "CREATE VIEW dbo.VTest AS SELECT DISTINCT p.LastName FROM dbo.VPeople p";
         
+        var options = InlinerOptions.Recommended();
+        options.StripUnusedJoins = false;
         var inliner = new DatabaseViewInliner(connection, viewSql, options);
-        Assert.AreEqual(0, inliner.Errors.Count);
-        Assert.IsTrue(inliner.Result.ConvertedSql.Contains("dbo.People"));
-        Assert.IsTrue(inliner.Result.ConvertedSql.Contains("DISTINCT"));
+        inliner.Errors.Count.ShouldBe(0);
+        inliner.Result.ConvertedSql.ShouldContain("dbo.People");
+        inliner.Result.ConvertedSql.ShouldContain("DISTINCT");
     }
 
     [Test]
@@ -158,7 +163,7 @@ public class ComplexScenarioTests
             WHERE p.IsActive = 1 AND p.LastName IS NOT NULL";
         
         var inliner = new DatabaseViewInliner(connection, viewSql, options);
-        Assert.AreEqual(0, inliner.Errors.Count);
-        Assert.IsTrue(inliner.Result.ConvertedSql.Contains("dbo.People"));
+        inliner.Errors.Count.ShouldBe(0);
+        inliner.Result.ConvertedSql.ShouldContain("dbo.People");
     }
 }

@@ -1,4 +1,5 @@
 using NUnit.Framework;
+using Shouldly;
 
 namespace SqlInliner.Tests;
 
@@ -8,14 +9,14 @@ public class DatabaseConnectionTests
     public void EmptyConnection_HasNoViews()
     {
         var connection = new DatabaseConnection();
-        Assert.AreEqual(0, connection.Views.Count);
+        connection.Views.Count.ShouldBe(0);
     }
 
     [Test]
     public void EmptyConnection_HasNullConnection()
     {
         var connection = new DatabaseConnection();
-        Assert.IsNull(connection.Connection);
+        connection.Connection.ShouldBeNull();
     }
 
     [Test]
@@ -27,7 +28,7 @@ public class DatabaseConnectionTests
         
         connection.AddViewDefinition(viewName, definition);
         
-        Assert.AreEqual(1, connection.Views.Count);
+        connection.Views.Count.ShouldBe(1);
     }
 
     [Test]
@@ -40,7 +41,7 @@ public class DatabaseConnectionTests
         connection.AddViewDefinition(viewName, definition);
         var retrieved = connection.GetViewDefinition(viewName.GetName());
         
-        Assert.AreEqual(definition, retrieved);
+        retrieved.ShouldBe(definition);
     }
 
     [Test]
@@ -55,9 +56,9 @@ public class DatabaseConnectionTests
         connection.AddViewDefinition(view1, def1);
         connection.AddViewDefinition(view2, def2);
         
-        Assert.AreEqual(2, connection.Views.Count);
-        Assert.AreEqual(def1, connection.GetViewDefinition(view1.GetName()));
-        Assert.AreEqual(def2, connection.GetViewDefinition(view2.GetName()));
+        connection.Views.Count.ShouldBe(2);
+        connection.GetViewDefinition(view1.GetName()).ShouldBe(def1);
+        connection.GetViewDefinition(view2.GetName()).ShouldBe(def2);
     }
 
     [Test]
@@ -67,7 +68,7 @@ public class DatabaseConnectionTests
         var viewName = DatabaseConnection.ToObjectName("dbo", "VTest");
         connection.AddViewDefinition(viewName, "CREATE VIEW dbo.VTest AS SELECT 1");
         
-        Assert.IsTrue(connection.IsView(viewName));
+        connection.IsView(viewName).ShouldBeTrue();
     }
 
     [Test]
@@ -76,7 +77,7 @@ public class DatabaseConnectionTests
         var connection = new DatabaseConnection();
         var viewName = DatabaseConnection.ToObjectName("dbo", "VTest");
         
-        Assert.IsFalse(connection.IsView(viewName));
+        connection.IsView(viewName).ShouldBeFalse();
     }
 
     [Test]
@@ -87,7 +88,7 @@ public class DatabaseConnectionTests
         var viewName2 = DatabaseConnection.ToObjectName("other", "VTest");
         connection.AddViewDefinition(viewName1, "CREATE VIEW dbo.VTest AS SELECT 1");
         
-        Assert.IsFalse(connection.IsView(viewName2));
+        connection.IsView(viewName2).ShouldBeFalse();
     }
 
     [Test]
@@ -101,7 +102,7 @@ public class DatabaseConnectionTests
         connection.AddViewDefinition(viewName, def1);
         connection.AddViewDefinition(viewName, def2);
         
-        Assert.AreEqual(def2, connection.GetViewDefinition(viewName.GetName()));
+        connection.GetViewDefinition(viewName.GetName()).ShouldBe(def2);
     }
 
     [Test]
@@ -109,8 +110,8 @@ public class DatabaseConnectionTests
     {
         var objectName = DatabaseConnection.ToObjectName("myschema", "myview");
         
-        Assert.IsNotNull(objectName);
-        Assert.AreEqual("myschema", objectName.SchemaIdentifier.Value);
-        Assert.AreEqual("myview", objectName.BaseIdentifier.Value);
+        objectName.ShouldNotBeNull();
+        objectName.SchemaIdentifier.Value.ShouldBe("myschema");
+        objectName.BaseIdentifier.Value.ShouldBe("myview");
     }
 }

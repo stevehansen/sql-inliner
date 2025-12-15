@@ -1,4 +1,5 @@
 using NUnit.Framework;
+using Shouldly;
 
 namespace SqlInliner.Tests;
 
@@ -19,8 +20,8 @@ public class BasicTests
 
         var (view, errors) = DatabaseView.FromSql(connection, viewSql);
 
-        Assert.IsNull(view);
-        Assert.AreNotEqual(0, errors.Count);
+        view.ShouldBeNull();
+        errors.Count.ShouldNotBe(0);
     }
 
     [Test]
@@ -29,8 +30,8 @@ public class BasicTests
         const string viewSql = "CREATE OR VIEW dbo.X AS SELECT 0";
 
         var inliner = new DatabaseViewInliner(connection, viewSql);
-        Assert.IsNull(inliner.View);
-        Assert.AreNotEqual(viewSql, inliner.Sql);
+        inliner.View.ShouldBeNull();
+        inliner.Sql.ShouldNotBe(viewSql);
     }
 
     [Test]
@@ -39,15 +40,15 @@ public class BasicTests
         const string viewSql = "CREATE VIEW dbo.X AS SELECT 0";
 
         var inliner = new DatabaseViewInliner(connection, viewSql);
-        Assert.AreEqual(0, inliner.Errors.Count);
-        Assert.AreEqual(viewSql, inliner.Sql);
-        Assert.IsNotNull(inliner.View);
+        inliner.Errors.Count.ShouldBe(0);
+        inliner.Sql.ShouldBe(viewSql);
+        inliner.View.ShouldNotBeNull();
     }
 
     [Test]
     public void EmptyConnection()
     {
-        Assert.AreEqual(0, connection.Views.Count);
-        Assert.IsNull(connection.Connection);
+        connection.Views.Count.ShouldBe(0);
+        connection.Connection.ShouldBeNull();
     }
 }

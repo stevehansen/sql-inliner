@@ -1,5 +1,6 @@
 using Microsoft.SqlServer.TransactSql.ScriptDom;
 using NUnit.Framework;
+using Shouldly;
 
 namespace SqlInliner.Tests;
 
@@ -10,7 +11,7 @@ public class SchemaObjectNameTests
     {
         var objectName = DatabaseConnection.ToObjectName("dbo", "MyTable");
         var result = objectName.GetName();
-        Assert.AreEqual("[dbo].[MyTable]", result);
+        result.ShouldBe("[dbo].[MyTable]");
     }
 
     [Test]
@@ -18,7 +19,7 @@ public class SchemaObjectNameTests
     {
         var objectName = DatabaseConnection.ToObjectName("custom", "MyView");
         var result = objectName.GetName();
-        Assert.AreEqual("[custom].[MyView]", result);
+        result.ShouldBe("[custom].[MyView]");
     }
 
     [Test]
@@ -26,7 +27,7 @@ public class SchemaObjectNameTests
     {
         var objectName = DatabaseConnection.ToObjectName("dbo", "My View With Spaces");
         var result = objectName.GetName();
-        Assert.AreEqual("[dbo].[My View With Spaces]", result);
+        result.ShouldBe("[dbo].[My View With Spaces]");
     }
 
     [Test]
@@ -35,15 +36,15 @@ public class SchemaObjectNameTests
         var objectName = new SchemaObjectName();
         objectName.Identifiers.Add(new Identifier { Value = "MyTable" });
         var result = objectName.GetName();
-        Assert.AreEqual("[dbo].[MyTable]", result);
+        result.ShouldBe("[dbo].[MyTable]");
     }
 
     [Test]
     public void ToObjectName_CreatesObjectWithTwoIdentifiers()
     {
         var objectName = DatabaseConnection.ToObjectName("schema", "table");
-        Assert.AreEqual(2, objectName.Identifiers.Count);
-        Assert.AreEqual("schema", objectName.Identifiers[0].Value);
-        Assert.AreEqual("table", objectName.Identifiers[1].Value);
+        objectName.Identifiers.Count.ShouldBe(2);
+        objectName.Identifiers[0].Value.ShouldBe("schema");
+        objectName.Identifiers[1].Value.ShouldBe("table");
     }
 }

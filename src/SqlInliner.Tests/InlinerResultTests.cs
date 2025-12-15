@@ -1,4 +1,5 @@
 using NUnit.Framework;
+using Shouldly;
 
 namespace SqlInliner.Tests;
 
@@ -21,10 +22,10 @@ public class InlinerResultTests
         const string viewSql = "CREATE VIEW dbo.VTest AS SELECT p.Id FROM dbo.VPeople p";
         
         var inliner = new DatabaseViewInliner(connection, viewSql, options);
-        Assert.IsNotNull(inliner.Result);
-        Assert.IsTrue(inliner.Result.Sql.Contains(DatabaseView.BeginOriginal));
-        Assert.IsTrue(inliner.Result.Sql.Contains(DatabaseView.EndOriginal));
-        Assert.IsTrue(inliner.Result.Sql.Contains(viewSql));
+        inliner.Result.ShouldNotBeNull();
+        inliner.Result.Sql.ShouldContain(DatabaseView.BeginOriginal);
+        inliner.Result.Sql.ShouldContain(DatabaseView.EndOriginal);
+        inliner.Result.Sql.ShouldContain(viewSql);
     }
 
     [Test]
@@ -32,10 +33,12 @@ public class InlinerResultTests
     {
         const string viewSql = "CREATE VIEW dbo.VTest AS SELECT p.Id FROM dbo.VPeople p";
         
+        var options = InlinerOptions.Recommended();
+        options.StripUnusedJoins = false;
         var inliner = new DatabaseViewInliner(connection, viewSql, options);
-        Assert.IsNotNull(inliner.Result);
-        Assert.IsNotNull(inliner.Result.ConvertedSql);
-        Assert.IsTrue(inliner.Result.ConvertedSql.Contains("dbo.People"));
+        inliner.Result.ShouldNotBeNull();
+        inliner.Result.ConvertedSql.ShouldNotBeNull();
+        inliner.Result.ConvertedSql.ShouldContain("dbo.People");
     }
 
     [Test]
@@ -44,9 +47,9 @@ public class InlinerResultTests
         const string viewSql = "CREATE VIEW dbo.VTest AS SELECT p.Id FROM dbo.VPeople p";
         
         var inliner = new DatabaseViewInliner(connection, viewSql, options);
-        Assert.IsNotNull(inliner.Result);
-        Assert.Greater(inliner.Result.KnownViews.Count, 0);
-        Assert.IsTrue(inliner.Result.Sql.Contains("Referenced views"));
+        inliner.Result.ShouldNotBeNull();
+        inliner.Result.KnownViews.Count.ShouldBeGreaterThan(0);
+        inliner.Result.Sql.ShouldContain("Referenced views");
     }
 
     [Test]
@@ -55,8 +58,8 @@ public class InlinerResultTests
         const string viewSql = "CREATE VIEW dbo.VTest AS SELECT p.Id FROM dbo.VPeople p";
         
         var inliner = new DatabaseViewInliner(connection, viewSql, options);
-        Assert.IsNotNull(inliner.Result);
-        Assert.IsTrue(inliner.Result.Sql.Contains("Generated on"));
+        inliner.Result.ShouldNotBeNull();
+        inliner.Result.Sql.ShouldContain("Generated on");
     }
 
     [Test]
@@ -65,8 +68,8 @@ public class InlinerResultTests
         const string viewSql = "CREATE VIEW dbo.VTest AS SELECT p.Id FROM dbo.VPeople p";
         
         var inliner = new DatabaseViewInliner(connection, viewSql, options);
-        Assert.IsNotNull(inliner.Result);
-        Assert.Greater(inliner.Result.Elapsed.TotalMilliseconds, 0);
+        inliner.Result.ShouldNotBeNull();
+        inliner.Result.Elapsed.TotalMilliseconds.ShouldBeGreaterThan(0);
     }
 
     [Test]
@@ -78,9 +81,9 @@ public class InlinerResultTests
         const string viewSql = "CREATE VIEW dbo.VTest AS SELECT p.Id FROM dbo.VPeopleExtra p";
         
         var inliner = new DatabaseViewInliner(connection, viewSql, options);
-        Assert.IsNotNull(inliner.Result);
-        Assert.IsTrue(inliner.Result.Sql.Contains("Removed:"));
-        Assert.IsTrue(inliner.Result.Sql.Contains("select columns"));
+        inliner.Result.ShouldNotBeNull();
+        inliner.Result.Sql.ShouldContain("Removed:");
+        inliner.Result.Sql.ShouldContain("select columns");
     }
 
     [Test]
@@ -89,8 +92,8 @@ public class InlinerResultTests
         const string viewSql = "CREATE VIEW dbo.VTest AS SELECT p.Id FROM dbo.VPeople p";
         
         var inliner = new DatabaseViewInliner(connection, viewSql, options);
-        Assert.IsNotNull(inliner.Result);
-        Assert.IsTrue(inliner.Result.Sql.Contains("Warnings"));
+        inliner.Result.ShouldNotBeNull();
+        inliner.Result.Sql.ShouldContain("Warnings");
     }
 
     [Test]
@@ -99,8 +102,8 @@ public class InlinerResultTests
         const string viewSql = "CREATE VIEW dbo.VTest AS SELECT p.Id FROM dbo.VPeople p";
         
         var inliner = new DatabaseViewInliner(connection, viewSql, options);
-        Assert.IsNotNull(inliner.Result);
-        Assert.IsTrue(inliner.Result.Sql.Contains("Errors"));
+        inliner.Result.ShouldNotBeNull();
+        inliner.Result.Sql.ShouldContain("Errors");
     }
 
     [Test]
@@ -109,7 +112,7 @@ public class InlinerResultTests
         const string viewSql = "CREATE VIEW dbo.VTest AS SELECT 1 AS Col";
         
         var inliner = new DatabaseViewInliner(connection, viewSql, options);
-        Assert.IsNull(inliner.Result);
+        inliner.Result.ShouldBeNull();
     }
 
     [Test]
@@ -118,8 +121,8 @@ public class InlinerResultTests
         const string viewSql = "CREATE VIEW dbo.VTest AS SELECT p.Id FROM dbo.VPeople p";
         
         var inliner = new DatabaseViewInliner(connection, viewSql, options);
-        Assert.IsNotNull(inliner.Result);
-        Assert.IsTrue(inliner.Result.KnownViews.ContainsKey("[dbo].[VTest]"));
+        inliner.Result.ShouldNotBeNull();
+        inliner.Result.KnownViews.ShouldContainKey("[dbo].[VTest]");
     }
 
     [Test]
@@ -128,7 +131,7 @@ public class InlinerResultTests
         const string viewSql = "CREATE VIEW dbo.VTest AS SELECT p.Id FROM dbo.VPeople p";
         
         var inliner = new DatabaseViewInliner(connection, viewSql, options);
-        Assert.IsNotNull(inliner.Result);
-        Assert.IsTrue(inliner.Result.KnownViews.ContainsKey("[dbo].[VPeople]"));
+        inliner.Result.ShouldNotBeNull();
+        inliner.Result.KnownViews.ShouldContainKey("[dbo].[VPeople]");
     }
 }

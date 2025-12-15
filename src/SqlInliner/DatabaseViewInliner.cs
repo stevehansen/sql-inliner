@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -142,8 +142,12 @@ public sealed class DatabaseViewInliner
         {
             DetectUnusedTablesToStrip(references, toRemove);
 
-            while (toRemove.Count > 0) // TODO: Optimize?
+            var lastRemovalCount = toRemove.Count + 1;
+            while (toRemove.Count > 0 && toRemove.Count < lastRemovalCount) // TODO: Optimize?
+            {
+                lastRemovalCount = toRemove.Count;
                 tree.Accept(new TableInlineVisitor(toReplace, toRemove));
+            }
 
             return;
         }
@@ -305,8 +309,12 @@ public sealed class DatabaseViewInliner
         // NOTE: Replace from/join with inner view
         tree.Accept(new TableInlineVisitor(toReplace, toRemove));
 
-        while (toRemove.Count > 0) // TODO: Optimize?
+        var lastCount = toRemove.Count + 1;
+        while (toRemove.Count > 0 && toRemove.Count < lastCount) // TODO: Optimize?
+        {
+            lastCount = toRemove.Count;
             tree.Accept(new TableInlineVisitor(toReplace, toRemove));
+        }
     }
 
     private void DetectUnusedTablesToStrip(ReferencesVisitor references, List<TableReference> toRemove)

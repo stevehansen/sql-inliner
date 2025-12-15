@@ -1,4 +1,5 @@
 using NUnit.Framework;
+using Shouldly;
 
 namespace SqlInliner.Tests;
 
@@ -17,7 +18,7 @@ public class DatabaseViewTests
     {
         const string viewSql = "CREATE VIEW dbo.V AS SELECT 1";
         var result = DatabaseView.CreateOrAlter(viewSql);
-        Assert.IsTrue(result.StartsWith("CREATE OR ALTER VIEW"));
+        result.ShouldStartWith("CREATE OR ALTER VIEW");
     }
 
     [Test]
@@ -25,7 +26,7 @@ public class DatabaseViewTests
     {
         const string viewSql = "create view dbo.V as select 1";
         var result = DatabaseView.CreateOrAlter(viewSql);
-        StringAssert.StartsWith("CREATE OR ALTER VIEW", result);
+        result.ShouldStartWith("CREATE OR ALTER VIEW");
     }
 
     [Test]
@@ -33,7 +34,7 @@ public class DatabaseViewTests
     {
         const string viewSql = "Create View dbo.V As SELECT 1";
         var result = DatabaseView.CreateOrAlter(viewSql);
-        StringAssert.StartsWith("CREATE OR ALTER VIEW", result);
+        result.ShouldStartWith("CREATE OR ALTER VIEW");
     }
 
     [Test]
@@ -41,7 +42,7 @@ public class DatabaseViewTests
     {
         const string viewSql = "CREATE    VIEW dbo.V AS SELECT 1";
         var result = DatabaseView.CreateOrAlter(viewSql);
-        StringAssert.StartsWith("CREATE OR ALTER VIEW", result);
+        result.ShouldStartWith("CREATE OR ALTER VIEW");
     }
 
     [Test]
@@ -49,7 +50,7 @@ public class DatabaseViewTests
     {
         const string viewSql = "CREATE\nVIEW dbo.V AS SELECT 1";
         var result = DatabaseView.CreateOrAlter(viewSql);
-        StringAssert.StartsWith("CREATE OR ALTER VIEW", result);
+        result.ShouldStartWith("CREATE OR ALTER VIEW");
     }
 
     [Test]
@@ -57,7 +58,7 @@ public class DatabaseViewTests
     {
         const string viewSql = "CREATE OR ALTER VIEW dbo.V AS SELECT 1";
         var result = DatabaseView.CreateOrAlter(viewSql);
-        Assert.AreEqual(viewSql, result);
+        result.ShouldBe(viewSql);
     }
 
     [Test]
@@ -65,9 +66,9 @@ public class DatabaseViewTests
     {
         const string viewSql = "CREATE VIEW dbo.VTest AS SELECT 1 AS Col";
         var (view, errors) = DatabaseView.FromSql(connection, viewSql);
-        Assert.IsNotNull(view);
-        Assert.AreEqual(0, errors.Count);
-        Assert.AreEqual("[dbo].[VTest]", view.ViewName);
+        view.ShouldNotBeNull();
+        errors.Count.ShouldBe(0);
+        view.ViewName.ShouldBe("[dbo].[VTest]");
     }
 
     [Test]
@@ -75,9 +76,9 @@ public class DatabaseViewTests
     {
         const string viewSql = "CREATE OR ALTER VIEW dbo.VTest AS SELECT 1 AS Col";
         var (view, errors) = DatabaseView.FromSql(connection, viewSql);
-        Assert.IsNotNull(view);
-        Assert.AreEqual(0, errors.Count);
-        Assert.AreEqual("[dbo].[VTest]", view.ViewName);
+        view.ShouldNotBeNull();
+        errors.Count.ShouldBe(0);
+        view.ViewName.ShouldBe("[dbo].[VTest]");
     }
 
     [Test]
@@ -85,8 +86,8 @@ public class DatabaseViewTests
     {
         const string viewSql = "CREATE OR VIEW dbo.VTest AS SELECT 1";
         var (view, errors) = DatabaseView.FromSql(connection, viewSql);
-        Assert.IsNull(view);
-        Assert.Greater(errors.Count, 0);
+        view.ShouldBeNull();
+        errors.Count.ShouldBeGreaterThan(0);
     }
 
     [Test]
@@ -94,17 +95,17 @@ public class DatabaseViewTests
     {
         const string viewSql = "CREATE VIEW dbo.VTest AS SELECT 1 AS Col1, 2 AS Col2, 3 AS Col3";
         var (view, errors) = DatabaseView.FromSql(connection, viewSql);
-        Assert.IsNotNull(view);
-        Assert.AreEqual(0, errors.Count);
+        view.ShouldNotBeNull();
+        errors.Count.ShouldBe(0);
     }
 
     [Test]
     public void FromSql_ViewWithWhere_ParsesCorrectly()
     {
-        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT Id FROM dbo.Table WHERE IsActive = 1";
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT Id FROM dbo.MyTable WHERE IsActive = 1";
         var (view, errors) = DatabaseView.FromSql(connection, viewSql);
-        Assert.IsNotNull(view);
-        Assert.AreEqual(0, errors.Count);
+        view.ShouldNotBeNull();
+        errors.Count.ShouldBe(0);
     }
 
     [Test]
@@ -112,7 +113,7 @@ public class DatabaseViewTests
     {
         const string viewSql = "CREATE VIEW dbo.VTest AS SELECT t1.Id FROM dbo.Table1 t1 INNER JOIN dbo.Table2 t2 ON t1.Id = t2.Id";
         var (view, errors) = DatabaseView.FromSql(connection, viewSql);
-        Assert.IsNotNull(view);
-        Assert.AreEqual(0, errors.Count);
+        view.ShouldNotBeNull();
+        errors.Count.ShouldBe(0);
     }
 }
