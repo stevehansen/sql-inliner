@@ -40,9 +40,9 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" Condition="'$(Configuration)' != 'ReleaseLibrary'" />
-    <PackageReference Include="System.Formats.Asn1" Version="10.0.1" />
-    <PackageReference Include="System.IO.Packaging" Version="10.0.1" />
+    <PackageReference Include="System.CommandLine" Version="2.0.2" Condition="'$(Configuration)' != 'ReleaseLibrary'" />
+    <PackageReference Include="System.Formats.Asn1" Version="10.0.2" />
+    <PackageReference Include="System.IO.Packaging" Version="10.0.2" />
     <PackageReference Include="ThisAssembly.AssemblyInfo" Version="2.1.2">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
