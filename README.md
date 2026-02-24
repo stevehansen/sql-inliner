@@ -1,4 +1,10 @@
 # sql-inliner
+
+[![NuGet (Tool)](https://img.shields.io/nuget/v/SqlInliner?label=SqlInliner&logo=nuget)](https://www.nuget.org/packages/SqlInliner)
+[![NuGet (Library)](https://img.shields.io/nuget/v/SqlInliner.Library?label=SqlInliner.Library&logo=nuget)](https://www.nuget.org/packages/SqlInliner.Library)
+[![CI](https://github.com/stevehansen/sql-inliner/actions/workflows/ci.yml/badge.svg)](https://github.com/stevehansen/sql-inliner/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Helper utility to inline SQL Server database views
 
 ## What is the purpose of this tool 
