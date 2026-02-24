@@ -20,8 +20,11 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Pack
+      - name: Pack Tool
         run: dotnet pack src/SqlInliner/SqlInliner.csproj -c Release --output ./nupkg
+
+      - name: Pack Library
+        run: dotnet pack src/SqlInliner/SqlInliner.csproj -c ReleaseLibrary --output ./nupkg
 
       - name: NuGet login (OIDC)
         uses: nuget/login@v1
