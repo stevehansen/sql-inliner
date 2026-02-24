@@ -75,4 +75,79 @@ public class AdditionalTests
         var inliner = new DatabaseViewInliner(connection, viewSql, InlinerOptions.Recommended());
         inliner.Errors.ShouldBeEmpty();
     }
+
+    [Test]
+    public void StripUnusedJoin_TableWithExplicitAlias()
+    {
+        var connection = new DatabaseConnection();
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VItems"),
+            "CREATE VIEW dbo.VItems AS SELECT a.Id, a.Name FROM dbo.A a INNER JOIN dbo.B b ON a.BId = b.Id");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id, v.Name FROM dbo.VItems v";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, InlinerOptions.Recommended());
+        inliner.Errors.ShouldBeEmpty();
+        inliner.Result.ShouldNotBeNull();
+        // B is unused (only referenced in its own join condition) and should be stripped
+        inliner.Result!.ConvertedSql.ShouldNotContain("dbo.B");
+        inliner.Result.ConvertedSql.ShouldContain("dbo.A");
+    }
+
+    [Test]
+    public void StripUnusedJoin_TableWithImplicitAlias()
+    {
+        var connection = new DatabaseConnection();
+        // View uses dbo.B without explicit alias — implicit alias "B" should still allow stripping
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VItems"),
+            "CREATE VIEW dbo.VItems AS SELECT A.Id, A.Name FROM dbo.A INNER JOIN dbo.B ON A.BId = B.Id");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id, v.Name FROM dbo.VItems v";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, InlinerOptions.Recommended());
+        inliner.Errors.ShouldBeEmpty();
+        inliner.Result.ShouldNotBeNull();
+        inliner.Result!.ConvertedSql.ShouldNotContain("dbo.B");
+        inliner.Result.ConvertedSql.ShouldContain("dbo.A");
+    }
+
+    [Test]
+    public void StripUnusedJoin_SameTableInMainAndSubquery_ExplicitAlias()
+    {
+        var connection = new DatabaseConnection();
+        // Inner view: main query joins B (unused in SELECT), subquery also references B
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VItems"),
+            @"CREATE VIEW dbo.VItems AS
+              SELECT a.Id, a.Name,
+                     (SELECT TOP 1 b2.Code FROM dbo.B b2 WHERE b2.Id = a.BId) AS BCode
+              FROM dbo.A a INNER JOIN dbo.B b ON a.BId = b.Id");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id, v.BCode FROM dbo.VItems v";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, InlinerOptions.Recommended());
+        inliner.Errors.ShouldBeEmpty();
+        inliner.Result.ShouldNotBeNull();
+        // The main-query B join is unused in SELECT, but the subquery's B keeps a reference
+        // alive via the flat column list. Conservative behavior: B may or may not be stripped,
+        // but the inliner must not error out.
+        inliner.Result!.ConvertedSql.ShouldContain("dbo.A");
+    }
+
+    [Test]
+    public void StripUnusedJoin_SameTableInMainAndSubquery_ImplicitAlias()
+    {
+        var connection = new DatabaseConnection();
+        // Same scenario but without explicit aliases on B
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VItems"),
+            @"CREATE VIEW dbo.VItems AS
+              SELECT A.Id, A.Name,
+                     (SELECT TOP 1 B.Code FROM dbo.B WHERE B.Id = A.BId) AS BCode
+              FROM dbo.A INNER JOIN dbo.B ON A.BId = B.Id");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id, v.BCode FROM dbo.VItems v";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, InlinerOptions.Recommended());
+        inliner.Errors.ShouldBeEmpty();
+        inliner.Result.ShouldNotBeNull();
+        inliner.Result!.ConvertedSql.ShouldContain("dbo.A");
+    }
 }
