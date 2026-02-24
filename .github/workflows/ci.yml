@@ -9,7 +9,7 @@ jobs:
     name: Release
     strategy:
       matrix:
-        kind: ['linux', 'windows', 'macOS']
+        kind: ['linux', 'windows', 'macOS-x64', 'macOS-arm64']
         include:
           - kind: linux
             os: ubuntu-latest
@@ -17,9 +17,12 @@ jobs:
           - kind: windows
             os: windows-latest
             target: win-x64
-          - kind: macOS
+          - kind: macOS-x64
             os: macos-latest
             target: osx-x64
+          - kind: macOS-arm64
+            os: macos-latest
+            target: osx-arm64
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -44,10 +47,6 @@ jobs:
           # Pack files
           if [ "${{ matrix.target }}" == "win-x64" ]; then
             7z a -tzip "${release_name}.zip" "./${release_name}/*"
-
-            dotnet pack --configuration ReleaseLibrary --output .
-
-            dotnet nuget push SqlInliner.$tag.nupkg --api-key $NUGET_TOKEN
           else
             tar czvf "${release_name}.tar.gz" "$release_name"
           fi
@@ -61,4 +60,3 @@ jobs:
           files: "SqlInliner-*"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NUGET_TOKEN: ${{ secrets.NUGET }}
