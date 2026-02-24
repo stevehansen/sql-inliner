@@ -1,4 +1,4 @@
-﻿#if !RELEASELIBRARY
+#if !RELEASELIBRARY
 
 using Microsoft.Data.SqlClient;
 using System;
@@ -11,14 +11,14 @@ internal static class Program
 {
     private static int Main(string[] args)
     {
-        var connectionStringOption = new Option<string>(new[] { "--connection-string", "-cs" }, "Contains the connection string to connect to the database");
-        var viewNameOption = new Option<string>(new[] { "--view-name", "-vn" }, "The name of the view to inline");
-        var viewPathOption = new Option<FileInfo>(new[] { "--view-path", "-vp" }, "The path of the view as a .sql file (including create statement)");
-        var stripUnusedColumnsOption = new Option<bool>(new[] { "--strip-unused-columns", "-suc" }, () => true);
-        var stripUnusedJoinsOption = new Option<bool>(new[] { "--strip-unused-joins", "-suj" });
-        var generateCreateOrAlterOption = new Option<bool>("--generate-create-or-alter", () => true);
-        var outputPathOption = new Option<FileInfo?>(new[] { "--output-path", "-op" }, "Optional path of the file to write the resulting SQL to");
-        var logPathOption = new Option<FileInfo?>(new[] { "--log-path", "-lp" }, "Optional path of the file to write debug information to");
+        var connectionStringOption = new Option<string>("--connection-string", "-cs") { Description = "Contains the connection string to connect to the database" };
+        var viewNameOption = new Option<string>("--view-name", "-vn") { Description = "The name of the view to inline" };
+        var viewPathOption = new Option<FileInfo>("--view-path", "-vp") { Description = "The path of the view as a .sql file (including create statement)" };
+        var stripUnusedColumnsOption = new Option<bool>("--strip-unused-columns", "-suc") { DefaultValueFactory = _ => true };
+        var stripUnusedJoinsOption = new Option<bool>("--strip-unused-joins", "-suj");
+        var generateCreateOrAlterOption = new Option<bool>("--generate-create-or-alter") { DefaultValueFactory = _ => true };
+        var outputPathOption = new Option<FileInfo?>("--output-path", "-op") { Description = "Optional path of the file to write the resulting SQL to" };
+        var logPathOption = new Option<FileInfo?>("--log-path", "-lp") { Description = "Optional path of the file to write debug information to" };
         var rootCommand = new RootCommand(ThisAssembly.AppName)
             {
                 connectionStringOption,
@@ -32,8 +32,17 @@ internal static class Program
                 // TODO: DatabaseView.parser (hardcoded to TSql150Parser)
             };
 
-        rootCommand.SetHandler((connectionString, viewName, viewPath, stripUnusedColumns, stripUnusedJoins, generateCreateOrAlter, outputPath, logPath) =>
+        rootCommand.SetAction(parseResult =>
         {
+            var connectionString = parseResult.GetValue(connectionStringOption);
+            var viewName = parseResult.GetValue(viewNameOption);
+            var viewPath = parseResult.GetValue(viewPathOption);
+            var stripUnusedColumns = parseResult.GetValue(stripUnusedColumnsOption);
+            var stripUnusedJoins = parseResult.GetValue(stripUnusedJoinsOption);
+            var generateCreateOrAlter = parseResult.GetValue(generateCreateOrAlterOption);
+            var outputPath = parseResult.GetValue(outputPathOption);
+            var logPath = parseResult.GetValue(logPathOption);
+
             var cs = new SqlConnectionStringBuilder(connectionString);
             if (!cs.ContainsKey(nameof(cs.ApplicationName)))
             {
@@ -74,9 +83,9 @@ internal static class Program
                 File.WriteAllText(logPath.FullName, log);
             }
             //return inliner.Errors.Count > 0 ? -1 : 0;
-        }, connectionStringOption, viewNameOption, viewPathOption, stripUnusedColumnsOption, stripUnusedJoinsOption, generateCreateOrAlterOption, outputPathOption, logPathOption);
+        });
 
-        return rootCommand.Invoke(args);
+        return rootCommand.Parse(args).Invoke();
     }
 }
 
