@@ -324,15 +324,46 @@ public sealed class DatabaseViewInliner
             foreach (var referenced in references.Tables)
             {
                 var alias = referenced.Alias?.Value ?? referenced.SchemaObject.BaseIdentifier.Value;
+
+                // Exclude column references from the join condition that introduces this table,
+                // so that filter conditions like "AND b.Type = 'B'" don't prevent stripping.
+                HashSet<ColumnReferenceExpression>? joinConditionRefs = null;
+                if (references.JoinConditions.TryGetValue(referenced, out var searchCondition))
+                    joinConditionRefs = CollectColumnReferences(searchCondition);
+
                 var columns = references.ColumnReferences
+                    .Where(c => joinConditionRefs == null || !joinConditionRefs.Contains(c))
                     .Where(c => c.MultiPartIdentifier.Count == 1 || c.MultiPartIdentifier[0].Value == alias)
                     .Select(c => c.MultiPartIdentifier.Identifiers.Last().Value);
-                if (columns.Count() <= 1)
+
+                // When we exclude join condition refs, the threshold drops to 0 (no external usage).
+                // Without exclusion, the original threshold of 1 accounts for the join key reference.
+                var threshold = joinConditionRefs != null ? 0 : 1;
+                if (columns.Count() <= threshold)
                 {
                     toRemove.Add(referenced);
                     TotalJoinsStripped++;
                 }
             }
+        }
+    }
+
+    private static HashSet<ColumnReferenceExpression> CollectColumnReferences(TSqlFragment fragment)
+    {
+        var collector = new ColumnReferenceCollector();
+        fragment.Accept(collector);
+        return collector.References;
+    }
+
+    private sealed class ColumnReferenceCollector : TSqlFragmentVisitor
+    {
+        public HashSet<ColumnReferenceExpression> References { get; } = new();
+
+        public override void ExplicitVisit(ColumnReferenceExpression node)
+        {
+            if (node.MultiPartIdentifier != null)
+                References.Add(node);
+            base.ExplicitVisit(node);
         }
     }
 

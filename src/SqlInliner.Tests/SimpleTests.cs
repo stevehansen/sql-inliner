@@ -168,6 +168,62 @@ public class SimpleTests
     }
 
     [Test]
+    public void StripJoinWithMultipleConditionsWhenUnused()
+    {
+        // A join with multiple ON conditions (e.g. AND b.Type = 'B') where the joined table
+        // is only referenced in its own ON clause should still be stripped.
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VFilteredJoin"),
+            "CREATE VIEW dbo.VFilteredJoin AS SELECT a.Id, a.Name FROM dbo.A a INNER JOIN dbo.B b ON a.BId = b.Id AND b.Type = 'B'");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT fj.Id, fj.Name FROM dbo.VFilteredJoin fj";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, options);
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        result.ConvertedSql.ShouldNotContain("dbo.B");
+        result.ConvertedSql.ShouldContain("dbo.A");
+    }
+
+    [Test]
+    public void KeepJoinWithMultipleConditionsWhenUsedInSelect()
+    {
+        // When the joined table is also referenced in the SELECT, it should NOT be stripped.
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VFilteredJoinUsed"),
+            "CREATE VIEW dbo.VFilteredJoinUsed AS SELECT a.Id, b.Name FROM dbo.A a INNER JOIN dbo.B b ON a.BId = b.Id AND b.Type = 'B'");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT fj.Id, fj.Name FROM dbo.VFilteredJoinUsed fj";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, options);
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        result.ConvertedSql.ShouldContain("dbo.B");
+        result.ConvertedSql.ShouldContain("dbo.A");
+    }
+
+    [Test]
+    public void KeepJoinWithMultipleConditionsWhenUsedInFollowingJoin()
+    {
+        // When the joined table is referenced in a following join's ON clause, it should NOT be stripped.
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VFilteredJoinChained"),
+            "CREATE VIEW dbo.VFilteredJoinChained AS SELECT a.Id, c.Value FROM dbo.A a INNER JOIN dbo.B b ON a.BId = b.Id AND b.Type = 'B' INNER JOIN dbo.C c ON c.BId = b.Id");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT fj.Id, fj.Value FROM dbo.VFilteredJoinChained fj";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, options);
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        result.ConvertedSql.ShouldContain("dbo.B");
+        result.ConvertedSql.ShouldContain("dbo.A");
+        result.ConvertedSql.ShouldContain("dbo.C");
+    }
+
+    [Test]
     public void CountColumnReferencesSkipParametersToIgnore()
     {
         const string viewSql = "CREATE VIEW dbo.VActivePeople AS SELECT CONVERT(varchar, p.Id) Id, dateadd(day, 1, p.DayOfBirth) DayOfBirth, CAST(10.5 AS INT) Number FROM dbo.VPeople p";

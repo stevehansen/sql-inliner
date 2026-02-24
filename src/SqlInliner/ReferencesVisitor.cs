@@ -52,6 +52,11 @@ public sealed class ReferencesVisitor : TSqlFragmentVisitor
     /// </summary>
     public List<NamedTableReference> Views { get; } = new();
 
+    /// <summary>
+    /// Maps named table references that are the second table in a qualified join to their join's search condition.
+    /// </summary>
+    public Dictionary<NamedTableReference, BooleanExpression> JoinConditions { get; } = new();
+
     /// <inheritdoc />
     public override void ExplicitVisit(FunctionCall node)
     {
@@ -93,6 +98,15 @@ public sealed class ReferencesVisitor : TSqlFragmentVisitor
         Body = node;
 
         base.ExplicitVisit(node);
+    }
+
+    /// <inheritdoc />
+    public override void ExplicitVisit(QualifiedJoin node)
+    {
+        base.ExplicitVisit(node);
+
+        if (node.SecondTableReference is NamedTableReference namedTable)
+            JoinConditions[namedTable] = node.SearchCondition;
     }
 
     /// <inheritdoc />
