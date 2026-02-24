@@ -62,25 +62,8 @@ public sealed class DatabaseView
 
             // TODO: Verify that we have all required properties on the ReferencesVisitor
 
-            var usedAliases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var reference in references.NamedTableReferences)
-            {
-                if (reference.Alias != null)
-                    usedAliases.Add(reference.Alias.Value);
-            }
-
             foreach (var view in references.Views)
-            {
-                if (view.Alias == null)
-                {
-                    var implicitAlias = view.SchemaObject.BaseIdentifier.Value;
-                    if (!usedAliases.Contains(implicitAlias))
-                    {
-                        view.Alias = new Identifier { Value = implicitAlias };
-                        usedAliases.Add(implicitAlias);
-                    }
-                }
-            }
+                view.Alias ??= view.SchemaObject.BaseIdentifier;
 
             foreach (var columnReference in references.ColumnReferences)
             {

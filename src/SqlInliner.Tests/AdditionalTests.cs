@@ -47,4 +47,32 @@ public class AdditionalTests
         referenced.Alias.ShouldNotBeNull();
         referenced.Alias!.Value.ShouldBe("VPeople");
     }
+
+    [Test]
+    public void SameViewInMultipleSubqueriesGetsImplicitAlias()
+    {
+        var connection = new DatabaseConnection();
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VStatus"),
+            "CREATE VIEW dbo.VStatus AS SELECT Id, Code FROM dbo.Statuses");
+
+        // VStatus is referenced twice in separate subqueries — both without explicit alias
+        const string viewSql = @"
+            CREATE VIEW dbo.VTest AS
+            SELECT
+                (SELECT TOP 1 VStatus.Code FROM dbo.VStatus WHERE VStatus.Id = t.StatusA) AS StatusA,
+                (SELECT TOP 1 VStatus.Code FROM dbo.VStatus WHERE VStatus.Id = t.StatusB) AS StatusB
+            FROM dbo.Items t";
+
+        var (view, errors) = DatabaseView.FromSql(connection, viewSql);
+        errors.Count.ShouldBe(0);
+        view.ShouldNotBeNull();
+
+        // Both references should get an implicit alias
+        foreach (var v in view!.References.Views)
+            v.Alias.ShouldNotBeNull();
+
+        // Should inline without errors
+        var inliner = new DatabaseViewInliner(connection, viewSql, InlinerOptions.Recommended());
+        inliner.Errors.ShouldBeEmpty();
+    }
 }
