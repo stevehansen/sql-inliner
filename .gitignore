@@ -350,3 +350,5 @@ MigrationBackup/
 .ionide/
 
 src/SqlInliner/Properties/launchSettings.json
+
+.claude/settings.local.json
