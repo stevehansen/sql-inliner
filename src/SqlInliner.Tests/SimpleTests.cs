@@ -171,19 +171,38 @@ public class SimpleTests
     public void StripJoinWithMultipleConditionsWhenUnused()
     {
         // A join with multiple ON conditions (e.g. AND b.Type = 'B') where the joined table
-        // is only referenced in its own ON clause should still be stripped.
+        // is only referenced in its own ON clause should still be stripped when aggressive mode is on.
         connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VFilteredJoin"),
             "CREATE VIEW dbo.VFilteredJoin AS SELECT a.Id, a.Name FROM dbo.A a INNER JOIN dbo.B b ON a.BId = b.Id AND b.Type = 'B'");
 
         const string viewSql = "CREATE VIEW dbo.VTest AS SELECT fj.Id, fj.Name FROM dbo.VFilteredJoin fj";
 
-        var inliner = new DatabaseViewInliner(connection, viewSql, options);
+        var aggressiveOptions = new InlinerOptions { StripUnusedColumns = true, StripUnusedJoins = true, AggressiveJoinStripping = true };
+        var inliner = new DatabaseViewInliner(connection, viewSql, aggressiveOptions);
         inliner.Errors.Count.ShouldBe(0);
 
         var result = inliner.Result;
         result.ShouldNotBeNull();
         result.ConvertedSql.ShouldNotContain("dbo.B");
         result.ConvertedSql.ShouldContain("dbo.A");
+    }
+
+    [Test]
+    public void KeepJoinWithMultipleConditionsWhenNotAggressive()
+    {
+        // Without AggressiveJoinStripping, a join with filter conditions in ON should be kept
+        // because the ON clause acts as a filter for INNER JOINs.
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VFilteredJoinSafe"),
+            "CREATE VIEW dbo.VFilteredJoinSafe AS SELECT a.Id, a.Name FROM dbo.A a INNER JOIN dbo.B b ON a.BId = b.Id AND b.Type = 'B'");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT fj.Id, fj.Name FROM dbo.VFilteredJoinSafe fj";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, options);
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        result.ConvertedSql.ShouldContain("dbo.B");
     }
 
     [Test]

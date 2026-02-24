@@ -16,6 +16,7 @@ internal static class Program
         var viewPathOption = new Option<FileInfo>("--view-path", "-vp") { Description = "The path of the view as a .sql file (including create statement)" };
         var stripUnusedColumnsOption = new Option<bool>("--strip-unused-columns", "-suc") { DefaultValueFactory = _ => true };
         var stripUnusedJoinsOption = new Option<bool>("--strip-unused-joins", "-suj");
+        var aggressiveJoinStrippingOption = new Option<bool>("--aggressive-join-stripping") { Description = "Exclude join condition references from usage count when stripping joins (can change results for INNER JOINs)" };
         var generateCreateOrAlterOption = new Option<bool>("--generate-create-or-alter") { DefaultValueFactory = _ => true };
         var outputPathOption = new Option<FileInfo?>("--output-path", "-op") { Description = "Optional path of the file to write the resulting SQL to" };
         var logPathOption = new Option<FileInfo?>("--log-path", "-lp") { Description = "Optional path of the file to write debug information to" };
@@ -26,6 +27,7 @@ internal static class Program
                 viewPathOption,
                 stripUnusedColumnsOption,
                 stripUnusedJoinsOption,
+                aggressiveJoinStrippingOption,
                 generateCreateOrAlterOption,
                 outputPathOption,
                 logPathOption,
@@ -39,6 +41,7 @@ internal static class Program
             var viewPath = parseResult.GetValue(viewPathOption);
             var stripUnusedColumns = parseResult.GetValue(stripUnusedColumnsOption);
             var stripUnusedJoins = parseResult.GetValue(stripUnusedJoinsOption);
+            var aggressiveJoinStripping = parseResult.GetValue(aggressiveJoinStrippingOption);
             var generateCreateOrAlter = parseResult.GetValue(generateCreateOrAlterOption);
             var outputPath = parseResult.GetValue(outputPathOption);
             var logPath = parseResult.GetValue(logPathOption);
@@ -67,6 +70,7 @@ internal static class Program
             {
                 StripUnusedColumns = stripUnusedColumns,
                 StripUnusedJoins = stripUnusedJoins,
+                AggressiveJoinStripping = aggressiveJoinStripping,
             });
 
             if (outputPath != null)

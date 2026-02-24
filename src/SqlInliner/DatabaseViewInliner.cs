@@ -325,10 +325,12 @@ public sealed class DatabaseViewInliner
             {
                 var alias = referenced.Alias?.Value ?? referenced.SchemaObject.BaseIdentifier.Value;
 
-                // Exclude column references from the join condition that introduces this table,
-                // so that filter conditions like "AND b.Type = 'B'" don't prevent stripping.
+                // When AggressiveJoinStripping is enabled, exclude column references from the
+                // join condition that introduces this table. This allows stripping joins where
+                // the table is only referenced in its own ON clause (e.g. AND b.Type = 'B').
+                // WARNING: This can change results for INNER JOINs where the ON clause filters rows.
                 HashSet<ColumnReferenceExpression>? joinConditionRefs = null;
-                if (references.JoinConditions.TryGetValue(referenced, out var searchCondition))
+                if (options.AggressiveJoinStripping && references.JoinConditions.TryGetValue(referenced, out var searchCondition))
                     joinConditionRefs = CollectColumnReferences(searchCondition);
 
                 var columns = references.ColumnReferences

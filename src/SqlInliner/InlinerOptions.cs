@@ -16,6 +16,14 @@ public sealed class InlinerOptions
     public bool StripUnusedJoins { get; set; }
 
     /// <summary>
+    /// Gets or sets whether join condition column references should be excluded from the usage count when stripping joins.
+    /// When <c>true</c>, a table referenced only in its own ON clause (e.g. <c>INNER JOIN b ON a.Id = b.Id AND b.Type = 'X'</c>)
+    /// will be stripped. This is more aggressive and can change results for INNER JOINs where the ON clause acts as a filter.
+    /// Defaults to <c>false</c>.
+    /// </summary>
+    public bool AggressiveJoinStripping { get; set; }
+
+    /// <summary>
     /// Gets the recommended options that should be used for optimal results.
     /// </summary>
     public static InlinerOptions Recommended()
