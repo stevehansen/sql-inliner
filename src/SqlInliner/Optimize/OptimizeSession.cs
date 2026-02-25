@@ -457,12 +457,12 @@ public sealed class OptimizeSession
                     });
                 }
 
-                // Sort by absolute difference descending (biggest regressions first)
+                // Sort by inlined reads descending (heaviest tables first)
                 rows.Sort((a, b) =>
                 {
-                    var diffA = Math.Abs(long.Parse(a[2], System.Globalization.NumberStyles.Number) - long.Parse(a[1], System.Globalization.NumberStyles.Number));
-                    var diffB = Math.Abs(long.Parse(b[2], System.Globalization.NumberStyles.Number) - long.Parse(b[1], System.Globalization.NumberStyles.Number));
-                    return diffB.CompareTo(diffA);
+                    var readsA = long.Parse(a[2], System.Globalization.NumberStyles.Number);
+                    var readsB = long.Parse(b[2], System.Globalization.NumberStyles.Number);
+                    return readsB.CompareTo(readsA);
                 });
 
                 wizard.WriteTable(
@@ -481,6 +481,15 @@ public sealed class OptimizeSession
                 var path = session.SaveExecutionPlan("plan-inlined", inlinedBench.ExecutionPlanXml);
                 wizard.Info($"Inlined execution plan:  {path}");
             }
+
+            // Save HTML report
+            var reportPath = session.SaveBenchmarkReport(
+                $"[{schema}].[{viewName}]",
+                $"[{schema}].[{inlinedViewName}]",
+                currentOptions.ToMetadataString(),
+                originalBench,
+                inlinedBench);
+            wizard.Info($"Benchmark report: {reportPath}");
 
             session.Log($"Benchmark: original CPU={originalBench.CpuTimeMs}ms elapsed={originalBench.ElapsedTimeMs}ms reads={originalBench.LogicalReads}");
             session.Log($"Benchmark: inlined CPU={inlinedBench.CpuTimeMs}ms elapsed={inlinedBench.ElapsedTimeMs}ms reads={inlinedBench.LogicalReads}");

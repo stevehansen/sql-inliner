@@ -220,7 +220,7 @@ sqlinliner optimize \
 5. **Deploy** — Executes `CREATE OR ALTER VIEW [schema].[ViewName_Inlined]` on the database.
 6. **Validate** — Compares the original and inlined views with `COUNT` and `EXCEPT` (both directions) to verify identical results.
 7. **Iterate** — Toggle options (strip-joins, aggressive mode) and re-inline, or continue to benchmarking.
-8. **Benchmark** — Uses `SET STATISTICS TIME ON` / `SET STATISTICS IO ON` to compare CPU time, elapsed time, and logical reads between the original and inlined views.
+8. **Benchmark** — Uses `SET STATISTICS TIME/IO/XML ON` to compare CPU time, elapsed time, and logical reads between the original and inlined views. Shows a per-table IO breakdown (sorted by heaviest reads), saves actual execution plans as `.sqlplan` files (openable in SSMS), and generates a self-contained `benchmark.html` report.
 9. **Summary & Cleanup** — Shows results, saves a `recommended.sql`, and prints a `DROP VIEW` statement (never executed automatically).
 
 ### Options
@@ -237,6 +237,8 @@ The `--config` / `-c` option is shared with the root command and also applies he
 Each optimization session creates a directory in the current working directory (e.g. `optimize-VHeavy-20260225T143022/`) containing:
 - `iteration-1.sql`, `iteration-2.sql`, ... — SQL from each iteration
 - `recommended.sql` — the final recommended version
+- `plan-original.sqlplan`, `plan-inlined.sqlplan` — actual execution plans (open in SSMS for visual comparison)
+- `benchmark.html` — self-contained HTML report with performance summary and per-table IO breakdown
 - `session.log` — timestamped log of all actions
 
 ## Feature details

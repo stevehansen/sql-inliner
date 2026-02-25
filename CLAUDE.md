@@ -55,9 +55,9 @@ Conditionally compiled (`#if !RELEASELIBRARY`) and excluded from the library bui
 
 11. **ConsoleWizard** / **IConsoleWizard** — Abstraction for interactive console I/O (prompts, colored output, tables). Tests use a `MockWizard` with queued answers.
 
-12. **SessionDirectory** — Manages a session folder (`optimize-{name}-{timestamp}/`), saves iteration files, computes SHA256 hashes for edit detection, and writes a session log.
+12. **SessionDirectory** — Manages a session folder (`optimize-{name}-{timestamp}/`), saves iteration files, execution plans (`.sqlplan`), a self-contained HTML benchmark report (`benchmark.html`), computes SHA256 hashes for edit detection, and writes a session log.
 
-13. **QueryRunner** — Executes validation queries (COUNT, EXCEPT) and benchmarks (SET STATISTICS TIME/IO via `SqlConnection.InfoMessage`) with configurable command timeouts.
+13. **QueryRunner** — Executes validation queries (COUNT, EXCEPT) and benchmarks (SET STATISTICS TIME/IO/XML via `SqlConnection.InfoMessage`) with configurable command timeouts. Parses per-table IO statistics (`TableIOStats`) and captures actual execution plans as XML. Results are returned in `BenchmarkResult`.
 
 ### Configuration subsystem
 
@@ -85,3 +85,7 @@ Tests use **NUnit** with **Shouldly** assertions. The standard pattern:
 - **Debug** — Standard development build
 - **Release** — Single-file, trimmed, ReadyToRun publish (for CLI distribution)
 - **ReleaseLibrary** — Multi-target library output (net472, netstandard2.0, net8.0, net9.0, net10.0), excludes Program.cs, System.CommandLine, and `Optimize\**`
+
+## Documentation
+
+When adding or changing user-facing features, always update **both** `README.md` and `CLAUDE.md` to reflect the changes. README.md is the public documentation for users; CLAUDE.md is the architecture reference for AI-assisted development. Keep them in sync.
