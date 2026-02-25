@@ -9,6 +9,18 @@ using Microsoft.Data.SqlClient;
 namespace SqlInliner.Optimize;
 
 /// <summary>
+/// Per-table IO statistics from SET STATISTICS IO.
+/// </summary>
+public sealed class TableIOStats
+{
+    public string TableName { get; set; } = "";
+    public long ScanCount { get; set; }
+    public long LogicalReads { get; set; }
+    public long PhysicalReads { get; set; }
+    public long ReadAheadReads { get; set; }
+}
+
+/// <summary>
 /// Results from a benchmark run.
 /// </summary>
 public sealed class BenchmarkResult
@@ -16,6 +28,8 @@ public sealed class BenchmarkResult
     public long CpuTimeMs { get; set; }
     public long ElapsedTimeMs { get; set; }
     public long LogicalReads { get; set; }
+    public List<TableIOStats> TableStats { get; set; } = new();
+    public string? ExecutionPlanXml { get; set; }
 }
 
 /// <summary>
@@ -86,11 +100,14 @@ SELECT COUNT_BIG(*) FROM (
         try
         {
             // SET LANGUAGE ensures statistics messages are in English regardless of server locale
+            // SET STATISTICS XML returns the actual execution plan as an additional result set
             var sql = $@"
 SET LANGUAGE us_english;
 SET STATISTICS TIME ON;
 SET STATISTICS IO ON;
+SET STATISTICS XML ON;
 SELECT * FROM [{schema}].[{viewName}];
+SET STATISTICS XML OFF;
 SET STATISTICS TIME OFF;
 SET STATISTICS IO OFF;";
 
@@ -99,7 +116,12 @@ SET STATISTICS IO OFF;";
             cmd.CommandTimeout = commandTimeoutSeconds;
 
             using var reader = cmd.ExecuteReader();
-            while (reader.Read()) { } // consume all rows
+            while (reader.Read()) { } // consume data rows
+
+            // STATISTICS XML returns the execution plan as an additional result set with a single XML column
+            if (reader.NextResult() && reader.Read())
+                result.ExecutionPlanXml = reader.GetString(0);
+
             while (reader.NextResult()) { } // advance past remaining result sets to flush statistics messages
         }
         finally
@@ -131,10 +153,28 @@ SET STATISTICS IO OFF;";
 
     private static void ParseStatisticsIO(string message, BenchmarkResult result)
     {
-        // Example: "Table 'People'. Scan count 1, logical reads 234, ..."
-        var match = Regex.Match(message, @"logical reads\s+(\d+)");
+        // Example: "Table 'People'. Scan count 1, logical reads 234, physical reads 0, read-ahead reads 0, ..."
+        var match = Regex.Match(message,
+            @"Table '(?<table>[^']+)'.*?" +
+            @"Scan count (?<scan>\d+).*?" +
+            @"logical reads (?<logical>\d+).*?" +
+            @"physical reads (?<physical>\d+).*?" +
+            @"read-ahead reads (?<readahead>\d+)");
+
         if (match.Success)
-            result.LogicalReads += long.Parse(match.Groups[1].Value);
+        {
+            var stats = new TableIOStats
+            {
+                TableName = match.Groups["table"].Value,
+                ScanCount = long.Parse(match.Groups["scan"].Value),
+                LogicalReads = long.Parse(match.Groups["logical"].Value),
+                PhysicalReads = long.Parse(match.Groups["physical"].Value),
+                ReadAheadReads = long.Parse(match.Groups["readahead"].Value),
+            };
+
+            result.TableStats.Add(stats);
+            result.LogicalReads += stats.LogicalReads;
+        }
     }
 
     private T ExecuteScalarWithTimeout<T>(string sql)

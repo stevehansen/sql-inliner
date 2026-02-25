@@ -1,8 +1,10 @@
 #if !RELEASELIBRARY
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text.RegularExpressions;
 
 namespace SqlInliner.Optimize;
@@ -393,7 +395,7 @@ public sealed class OptimizeSession
 
     private void StepBenchmark()
     {
-        if (!wizard.Confirm("Run performance benchmark (SET STATISTICS TIME/IO)?"))
+        if (!wizard.Confirm("Run performance benchmark (SET STATISTICS TIME/IO + execution plan)?"))
             return;
 
         wizard.Info("Running benchmark... this may take a while.");
@@ -412,6 +414,7 @@ public sealed class OptimizeSession
             wizard.Info($"Benchmarking [{schema}].[{inlinedViewName}]...");
             var inlinedBench = queryRunner.RunBenchmark(schema, inlinedViewName);
 
+            // Summary table
             wizard.Info("");
             wizard.WriteTable(
                 new[] { "Metric", "Original", "Inlined", "Change" },
@@ -421,6 +424,63 @@ public sealed class OptimizeSession
                     new[] { "Elapsed (ms)", originalBench.ElapsedTimeMs.ToString("N0"), inlinedBench.ElapsedTimeMs.ToString("N0"), FormatChange(originalBench.ElapsedTimeMs, inlinedBench.ElapsedTimeMs) },
                     new[] { "Logical reads", originalBench.LogicalReads.ToString("N0"), inlinedBench.LogicalReads.ToString("N0"), FormatChange(originalBench.LogicalReads, inlinedBench.LogicalReads) },
                 });
+
+            // Per-table IO comparison
+            if (originalBench.TableStats.Count > 0 || inlinedBench.TableStats.Count > 0)
+            {
+                wizard.Info("");
+                wizard.Info("Per-table IO breakdown:");
+
+                var origByTable = originalBench.TableStats.ToDictionary(t => t.TableName, t => t);
+                var inlinedByTable = inlinedBench.TableStats.ToDictionary(t => t.TableName, t => t);
+                var allTables = new HashSet<string>(origByTable.Keys);
+                allTables.UnionWith(inlinedByTable.Keys);
+
+                var rows = new List<string[]>();
+                foreach (var table in allTables)
+                {
+                    origByTable.TryGetValue(table, out var orig);
+                    inlinedByTable.TryGetValue(table, out var inlined);
+                    var origReads = orig?.LogicalReads ?? 0;
+                    var inlinedReads = inlined?.LogicalReads ?? 0;
+
+                    // Skip worktables with 0 reads on both sides
+                    if (origReads == 0 && inlinedReads == 0)
+                        continue;
+
+                    rows.Add(new[]
+                    {
+                        table,
+                        origReads.ToString("N0"),
+                        inlinedReads.ToString("N0"),
+                        FormatChange(origReads, inlinedReads),
+                    });
+                }
+
+                // Sort by absolute difference descending (biggest regressions first)
+                rows.Sort((a, b) =>
+                {
+                    var diffA = Math.Abs(long.Parse(a[2], System.Globalization.NumberStyles.Number) - long.Parse(a[1], System.Globalization.NumberStyles.Number));
+                    var diffB = Math.Abs(long.Parse(b[2], System.Globalization.NumberStyles.Number) - long.Parse(b[1], System.Globalization.NumberStyles.Number));
+                    return diffB.CompareTo(diffA);
+                });
+
+                wizard.WriteTable(
+                    new[] { "Table", "Orig Reads", "Inlined Reads", "Change" },
+                    rows);
+            }
+
+            // Save execution plans
+            if (originalBench.ExecutionPlanXml != null)
+            {
+                var path = session.SaveExecutionPlan("plan-original", originalBench.ExecutionPlanXml);
+                wizard.Info($"Original execution plan: {path}");
+            }
+            if (inlinedBench.ExecutionPlanXml != null)
+            {
+                var path = session.SaveExecutionPlan("plan-inlined", inlinedBench.ExecutionPlanXml);
+                wizard.Info($"Inlined execution plan:  {path}");
+            }
 
             session.Log($"Benchmark: original CPU={originalBench.CpuTimeMs}ms elapsed={originalBench.ElapsedTimeMs}ms reads={originalBench.LogicalReads}");
             session.Log($"Benchmark: inlined CPU={inlinedBench.CpuTimeMs}ms elapsed={inlinedBench.ElapsedTimeMs}ms reads={inlinedBench.LogicalReads}");

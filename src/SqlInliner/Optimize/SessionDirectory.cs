@@ -55,6 +55,18 @@ public sealed class SessionDirectory
     }
 
     /// <summary>
+    /// Saves an execution plan XML file. Returns the full file path.
+    /// The .sqlplan extension opens directly in SSMS for visual plan comparison.
+    /// </summary>
+    public string SaveExecutionPlan(string label, string xmlPlan)
+    {
+        var path = Path.Combine(DirectoryPath, $"{label}.sqlplan");
+        File.WriteAllText(path, xmlPlan);
+        Log($"Saved {label}.sqlplan");
+        return path;
+    }
+
+    /// <summary>
     /// Computes a SHA256 hash of the file at the specified path.
     /// </summary>
     public static string ComputeHash(string filePath)
