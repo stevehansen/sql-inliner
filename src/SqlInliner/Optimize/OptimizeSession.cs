@@ -400,6 +400,12 @@ public sealed class OptimizeSession
 
         try
         {
+            // Warmup run: execute both views once to populate caches and compile execution plans,
+            // ensuring a fair comparison (otherwise the first/new view runs cold).
+            wizard.Info("Warming up caches...");
+            queryRunner.RunBenchmark(schema, viewName);
+            queryRunner.RunBenchmark(schema, inlinedViewName);
+
             wizard.Info($"Benchmarking [{schema}].[{viewName}]...");
             var originalBench = queryRunner.RunBenchmark(schema, viewName);
 
