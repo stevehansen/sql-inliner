@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using Microsoft.SqlServer.TransactSql.ScriptDom;
 
 namespace SqlInliner;
@@ -57,6 +58,16 @@ public sealed class ReferencesVisitor : TSqlFragmentVisitor
     /// </summary>
     public Dictionary<NamedTableReference, BooleanExpression> JoinConditions { get; } = new();
 
+    /// <summary>
+    /// Maps named table references that are the second table in a qualified join to their join type (Inner, LeftOuter, etc.).
+    /// </summary>
+    public Dictionary<NamedTableReference, QualifiedJoinType> JoinTypes { get; } = new();
+
+    /// <summary>
+    /// Maps named table references that are the second table in a qualified join to any <see cref="JoinHint"/> parsed from SQL comments.
+    /// </summary>
+    public Dictionary<NamedTableReference, JoinHint> JoinHints { get; } = new();
+
     /// <inheritdoc />
     public override void ExplicitVisit(FunctionCall node)
     {
@@ -106,7 +117,47 @@ public sealed class ReferencesVisitor : TSqlFragmentVisitor
         base.ExplicitVisit(node);
 
         if (node.SecondTableReference is NamedTableReference namedTable)
+        {
             JoinConditions[namedTable] = node.SearchCondition;
+            JoinTypes[namedTable] = node.QualifiedJoinType;
+
+            var hints = ParseJoinHints(node);
+            if (hints != JoinHint.None)
+                JoinHints[namedTable] = hints;
+        }
+    }
+
+    /// <summary>
+    /// Scans the token stream between the first table reference and the search condition
+    /// of a <see cref="QualifiedJoin"/> for SQL comments containing join hints.
+    /// </summary>
+    private static JoinHint ParseJoinHints(QualifiedJoin node)
+    {
+        var hints = JoinHint.None;
+        var tokens = node.ScriptTokenStream;
+        if (tokens == null)
+            return hints;
+
+        // Scan tokens between the end of the first table reference and the start of the
+        // search condition. This range covers the JOIN keyword, any hint comments, and the
+        // second table reference — but not tokens from nested joins or the ON clause body.
+        var startIndex = node.FirstTableReference.LastTokenIndex + 1;
+        var endIndex = node.SearchCondition?.FirstTokenIndex ?? node.LastTokenIndex + 1;
+
+        for (var i = startIndex; i < endIndex; i++)
+        {
+            var token = tokens[i];
+            if (token.TokenType is TSqlTokenType.MultilineComment or TSqlTokenType.SingleLineComment)
+            {
+                var text = token.Text;
+                if (text.IndexOf(JoinHintMarkers.Unique, StringComparison.OrdinalIgnoreCase) >= 0)
+                    hints |= JoinHint.Unique;
+                if (text.IndexOf(JoinHintMarkers.Required, StringComparison.OrdinalIgnoreCase) >= 0)
+                    hints |= JoinHint.Required;
+            }
+        }
+
+        return hints;
     }
 
     /// <inheritdoc />

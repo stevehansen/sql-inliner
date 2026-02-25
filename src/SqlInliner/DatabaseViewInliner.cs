@@ -280,7 +280,17 @@ public sealed class DatabaseViewInliner
                         });
                         break;
 
-                    case 1 when options.StripUnusedJoins: // TODO: Allow configuration per specific join/alias, to keep certain joins that would be used as filter
+                    case 1 when options.StripUnusedJoins:
+                        // If the join has cardinality hints, verify removal is safe before stripping.
+                        if (references.JoinHints.TryGetValue(referenced, out var viewHint))
+                        {
+                            references.JoinTypes.TryGetValue(referenced, out var viewJoinType);
+                            if (!IsJoinSafeToRemove(viewHint, viewJoinType))
+                            {
+                                Warnings.Add($"Only 1 column is selected from {viewName} {alias} in {view.ViewName}, but join hint indicates removal is not safe.");
+                                break;
+                            }
+                        }
                         toRemove.Add(referenced);
                         TotalJoinsStripped++;
                         continue;
@@ -343,11 +353,38 @@ public sealed class DatabaseViewInliner
                 var threshold = joinConditionRefs != null ? 0 : 1;
                 if (columns.Count() <= threshold)
                 {
+                    // If the join has cardinality hints, verify removal is safe before stripping.
+                    if (references.JoinHints.TryGetValue(referenced, out var hint))
+                    {
+                        references.JoinTypes.TryGetValue(referenced, out var joinType);
+                        if (!IsJoinSafeToRemove(hint, joinType))
+                            continue;
+                    }
                     toRemove.Add(referenced);
                     TotalJoinsStripped++;
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Determines whether a join with the specified hint and type can be safely removed
+    /// without affecting the query's row count.
+    /// </summary>
+    private static bool IsJoinSafeToRemove(JoinHint hint, QualifiedJoinType joinType)
+    {
+        if (!hint.HasFlag(JoinHint.Unique))
+            return false; // May fan out — not safe
+
+        return joinType switch
+        {
+            // LEFT JOIN + unique: at most 1 match, all left-side rows preserved
+            QualifiedJoinType.LeftOuter => true,
+            // INNER JOIN + unique + required: exactly 1 match per row, no filtering
+            QualifiedJoinType.Inner when hint.HasFlag(JoinHint.Required) => true,
+            // Other cases (INNER without required, RIGHT, FULL) are not safe
+            _ => false,
+        };
     }
 
     private static HashSet<ColumnReferenceExpression> CollectColumnReferences(TSqlFragment fragment)
