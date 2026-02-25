@@ -85,7 +85,9 @@ SELECT COUNT_BIG(*) FROM (
         sqlConnection.InfoMessage += OnInfoMessage;
         try
         {
+            // SET LANGUAGE ensures statistics messages are in English regardless of server locale
             var sql = $@"
+SET LANGUAGE us_english;
 SET STATISTICS TIME ON;
 SET STATISTICS IO ON;
 SELECT * FROM [{schema}].[{viewName}];
@@ -98,6 +100,7 @@ SET STATISTICS IO OFF;";
 
             using var reader = cmd.ExecuteReader();
             while (reader.Read()) { } // consume all rows
+            while (reader.NextResult()) { } // advance past remaining result sets to flush statistics messages
         }
         finally
         {
