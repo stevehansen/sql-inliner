@@ -76,8 +76,8 @@ public class FlattenDerivedTableTests
         AssertValidSql(result.ConvertedSql);
 
         result.ConvertedSql.ShouldNotContain("(SELECT");
-        // The outer WHERE should reference the inner table's alias
-        result.ConvertedSql.ShouldContain("p.Id > 10");
+        // The outer WHERE should reference the derived table's alias
+        result.ConvertedSql.ShouldContain("v.Id > 10");
     }
 
     [Test]
@@ -96,7 +96,7 @@ public class FlattenDerivedTableTests
         AssertValidSql(result.ConvertedSql);
 
         result.ConvertedSql.ShouldNotContain("(SELECT");
-        result.ConvertedSql.ShouldContain("p.Active = 1");
+        result.ConvertedSql.ShouldContain("v.Active = 1");
     }
 
     [Test]
@@ -116,8 +116,8 @@ public class FlattenDerivedTableTests
 
         result.ConvertedSql.ShouldNotContain("(SELECT");
         // Both conditions should be merged with AND
-        result.ConvertedSql.ShouldContain("p.Id > 10");
-        result.ConvertedSql.ShouldContain("p.Active = 1");
+        result.ConvertedSql.ShouldContain("v.Id > 10");
+        result.ConvertedSql.ShouldContain("v.Active = 1");
         result.ConvertedSql.ShouldContain("AND");
     }
 
@@ -137,8 +137,8 @@ public class FlattenDerivedTableTests
         AssertValidSql(result.ConvertedSql);
 
         result.ConvertedSql.ShouldNotContain("(SELECT");
-        // v.FName should be rewritten to p.FirstName
-        result.ConvertedSql.ShouldContain("p.FirstName");
+        // v.FName should be rewritten to the underlying column using the derived alias
+        result.ConvertedSql.ShouldContain("v.FirstName");
     }
 
     [Test]
@@ -466,8 +466,8 @@ public class FlattenDerivedTableTests
         AssertValidSql(result.ConvertedSql);
 
         result.ConvertedSql.ShouldNotContain("(SELECT");
-        // Inner alias 't' should be renamed to 't1' to avoid conflict
-        result.ConvertedSql.ShouldContain("t1");
+        // Single-table inner query now uses derived alias 'v', so no collision with outer 't'
+        result.ConvertedSql.ShouldContain("v");
         result.ConvertedSql.ShouldContain("dbo.People");
         inliner.TotalDerivedTablesFlattened.ShouldBe(1);
     }
@@ -513,8 +513,8 @@ public class FlattenDerivedTableTests
         AssertValidSql(result.ConvertedSql);
 
         result.ConvertedSql.ShouldNotContain("(SELECT");
-        // Inner WHERE should use renamed alias
-        result.ConvertedSql.ShouldContain("t1.Active = 1");
+        // Inner WHERE should use derived alias (no collision since inner table gets 'v')
+        result.ConvertedSql.ShouldContain("v.Active = 1");
     }
 
     [Test]
@@ -533,8 +533,8 @@ public class FlattenDerivedTableTests
         AssertValidSql(result.ConvertedSql);
 
         result.ConvertedSql.ShouldNotContain("(SELECT");
-        // JOIN condition should reference renamed alias
-        result.ConvertedSql.ShouldContain("t1.Id");
+        // JOIN condition should reference the derived alias (no collision since inner table gets 'v')
+        result.ConvertedSql.ShouldContain("v.Id");
         result.ConvertedSql.ShouldContain("dbo.People");
     }
 
@@ -919,9 +919,9 @@ public class FlattenDerivedTableTests
         result.ShouldNotBeNull();
         AssertValidSql(result.ConvertedSql);
 
-        // 'p' is the inner alias and should be kept since there's no collision
-        result.ConvertedSql.ShouldContain("p.Id");
-        result.ConvertedSql.ShouldContain("p.Name");
+        // The derived alias 'v' is preserved for single-table inner queries
+        result.ConvertedSql.ShouldContain("v.Id");
+        result.ConvertedSql.ShouldContain("v.Name");
     }
 
     // ========================================================================
@@ -946,9 +946,9 @@ public class FlattenDerivedTableTests
         AssertValidSql(result.ConvertedSql);
 
         result.ConvertedSql.ShouldNotContain("(SELECT");
-        // Unqualified 'CodeType' should be qualified after flattening
+        // Unqualified 'CodeType' should be qualified after flattening using the derived alias
         result.ConvertedSql.ShouldNotContain("(CodeType");
-        result.ConvertedSql.ShouldContain("c.CodeType");
+        result.ConvertedSql.ShouldContain("v.CodeType");
     }
 
     [Test]
@@ -992,10 +992,10 @@ public class FlattenDerivedTableTests
         AssertValidSql(result.ConvertedSql);
 
         result.ConvertedSql.ShouldNotContain("(SELECT");
-        // GROUP BY should reference inner alias, not derived alias
-        result.ConvertedSql.ShouldContain("p.PersonId");
-        result.ConvertedSql.ShouldContain("p.Name");
-        result.ConvertedSql.ShouldNotContain("v.PersonId");
+        // GROUP BY should reference the derived table's alias
+        result.ConvertedSql.ShouldContain("v.PersonId");
+        result.ConvertedSql.ShouldContain("v.Name");
+        result.ConvertedSql.ShouldNotContain("p.PersonId");
     }
 
     [Test]
@@ -1015,8 +1015,8 @@ public class FlattenDerivedTableTests
         AssertValidSql(result.ConvertedSql);
 
         result.ConvertedSql.ShouldNotContain("(SELECT");
-        result.ConvertedSql.ShouldContain("p.PersonId");
-        result.ConvertedSql.ShouldContain("p.Name");
+        result.ConvertedSql.ShouldContain("v.PersonId");
+        result.ConvertedSql.ShouldContain("v.Name");
     }
 
     [Test]
@@ -1064,9 +1064,9 @@ public class FlattenDerivedTableTests
         result.ConvertedSql.ShouldNotContain("(SELECT");
         // The WHERE condition must be in the ON clause, not a top-level WHERE
         result.ConvertedSql.ShouldNotContain("WHERE");
-        result.ConvertedSql.ShouldContain("c.CodeType = 'STATUS'");
+        result.ConvertedSql.ShouldContain("v.CodeType = 'STATUS'");
         // ON clause should contain both the original join condition and the inner WHERE
-        result.ConvertedSql.ShouldContain("t.StatusId = c.Id");
+        result.ConvertedSql.ShouldContain("t.StatusId = v.Id");
     }
 
     [Test]
@@ -1089,7 +1089,7 @@ public class FlattenDerivedTableTests
         result.ConvertedSql.ShouldNotContain("(SELECT");
         // The WHERE condition should be in the ON clause
         result.ConvertedSql.ShouldNotContain("WHERE");
-        result.ConvertedSql.ShouldContain("c.CodeType = 'STATUS'");
+        result.ConvertedSql.ShouldContain("v.CodeType = 'STATUS'");
     }
 
     [Test]
@@ -1160,9 +1160,9 @@ public class FlattenDerivedTableTests
         AssertValidSql(result.ConvertedSql);
 
         result.ConvertedSql.ShouldNotContain("(SELECT");
-        // Inner WHERE should be in the outer WHERE
+        // Inner WHERE should be in the outer WHERE, using the derived table's alias
         result.ConvertedSql.ShouldContain("WHERE");
-        result.ConvertedSql.ShouldContain("p.Active = 1");
+        result.ConvertedSql.ShouldContain("v.Active = 1");
     }
 
     [Test]

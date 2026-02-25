@@ -241,23 +241,33 @@ internal sealed class DerivedTableFlattener
                 return false;
         }
 
-        // Alias collision detection and resolution for all inner tables
-        foreach (var innerTableRef in innerTableRefs)
+        // Alias handling: for single-table inner queries, preserve the derived table alias
+        // (e.g., VNOKNVT, VVerlofAttest) for readability. For multi-table, resolve collisions normally.
+        if (innerTableRefs.Count == 1)
         {
-            var innerAlias = innerTableRef.Alias?.Value ?? innerTableRef.SchemaObject.BaseIdentifier.Value;
-            var resolvedAlias = ResolveAliasCollision(innerAlias, outerAliases, derivedAlias);
-            if (resolvedAlias != innerAlias)
+            var innerAlias = innerTableRefs[0].Alias?.Value ?? innerTableRefs[0].SchemaObject.BaseIdentifier.Value;
+            if (!string.Equals(innerAlias, derivedAlias, StringComparison.OrdinalIgnoreCase))
+                RenameAliasInFragment(innerQuery, innerAlias, derivedAlias);
+
+            innerTableRefs[0].Alias ??= new Identifier();
+            innerTableRefs[0].Alias.Value = derivedAlias;
+            // derivedAlias is already in outerAliases (collected at the start)
+        }
+        else
+        {
+            foreach (var innerTableRef in innerTableRefs)
             {
-                // Rename all references to the inner alias within the inner query
-                RenameAliasInFragment(innerQuery, innerAlias, resolvedAlias);
+                var innerAlias = innerTableRef.Alias?.Value ?? innerTableRef.SchemaObject.BaseIdentifier.Value;
+                var resolvedAlias = ResolveAliasCollision(innerAlias, outerAliases, derivedAlias);
+                if (resolvedAlias != innerAlias)
+                {
+                    RenameAliasInFragment(innerQuery, innerAlias, resolvedAlias);
+                    innerTableRef.Alias ??= new Identifier();
+                    innerTableRef.Alias.Value = resolvedAlias;
+                }
 
-                // Update the inner table's alias
-                innerTableRef.Alias ??= new Identifier();
-                innerTableRef.Alias.Value = resolvedAlias;
+                outerAliases.Add(resolvedAlias);
             }
-
-            // Register the alias in outer scope (column map values are updated in-place by RenameAliasInFragment)
-            outerAliases.Add(resolvedAlias);
         }
 
         // Rewrite outer column references: derivedAlias.col -> inner column's identifiers
