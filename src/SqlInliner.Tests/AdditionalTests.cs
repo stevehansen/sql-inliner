@@ -150,4 +150,48 @@ public class AdditionalTests
         inliner.Result.ShouldNotBeNull();
         inliner.Result!.ConvertedSql.ShouldContain("dbo.A");
     }
+
+    [Test]
+    public void StripLeftOuterJoin_MultipleOnConditions_NoColumnsSelected()
+    {
+        // A LEFT OUTER JOIN whose columns are only referenced in its own ON clause
+        // should be auto-stripped without requiring AggressiveJoinStripping, because
+        // outer joins cannot reduce rows from the left side.
+        var connection = new DatabaseConnection();
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VPersonGsms"),
+            @"CREATE VIEW dbo.VPersonGsms AS
+              SELECT p.Id, p.Name, pg.GsmNumber
+              FROM dbo.Person p
+              LEFT JOIN dbo.PersonGsms pg ON pg.PersonId = p.Id AND pg.DefaultInd = 1 AND pg.GsmType = 'M'");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id, v.Name FROM dbo.VPersonGsms v";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, InlinerOptions.Recommended());
+        inliner.Errors.ShouldBeEmpty();
+        inliner.Result.ShouldNotBeNull();
+        // PersonGsms should be stripped — it's a LEFT JOIN and no columns are used outside the ON clause
+        inliner.Result!.ConvertedSql.ShouldNotContain("PersonGsms");
+        inliner.Result.ConvertedSql.ShouldContain("dbo.Person");
+    }
+
+    [Test]
+    public void KeepInnerJoin_MultipleOnConditions_WithoutAggressive()
+    {
+        // An INNER JOIN whose columns are only in its ON clause should NOT be stripped
+        // without AggressiveJoinStripping, because the ON clause can filter rows.
+        var connection = new DatabaseConnection();
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VPersonStatus"),
+            @"CREATE VIEW dbo.VPersonStatus AS
+              SELECT p.Id, p.Name, s.StatusName
+              FROM dbo.Person p
+              INNER JOIN dbo.Status s ON s.Id = p.StatusId AND s.IsActive = 1");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id, v.Name FROM dbo.VPersonStatus v";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, InlinerOptions.Recommended());
+        inliner.Errors.ShouldBeEmpty();
+        inliner.Result.ShouldNotBeNull();
+        // Status should be kept — INNER JOIN ON clause may filter rows
+        inliner.Result!.ConvertedSql.ShouldContain("dbo.Status");
+    }
 }

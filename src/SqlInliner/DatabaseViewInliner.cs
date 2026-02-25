@@ -335,13 +335,19 @@ public sealed class DatabaseViewInliner
             {
                 var alias = referenced.Alias?.Value ?? referenced.SchemaObject.BaseIdentifier.Value;
 
-                // When AggressiveJoinStripping is enabled, exclude column references from the
-                // join condition that introduces this table. This allows stripping joins where
-                // the table is only referenced in its own ON clause (e.g. AND b.Type = 'B').
-                // WARNING: This can change results for INNER JOINs where the ON clause filters rows.
+                // Exclude column references from the join condition when it's safe to do so.
+                // For LEFT/RIGHT OUTER JOINs this is always safe — they can't reduce rows.
+                // For INNER JOINs, only exclude when AggressiveJoinStripping is opted in,
+                // because the ON clause may act as a filter that affects row counts.
                 HashSet<ColumnReferenceExpression>? joinConditionRefs = null;
-                if (options.AggressiveJoinStripping && references.JoinConditions.TryGetValue(referenced, out var searchCondition))
-                    joinConditionRefs = CollectColumnReferences(searchCondition);
+                if (references.JoinConditions.TryGetValue(referenced, out var searchCondition))
+                {
+                    var isOuterJoin = references.JoinTypes.TryGetValue(referenced, out var joinType)
+                        && joinType is QualifiedJoinType.LeftOuter or QualifiedJoinType.RightOuter or QualifiedJoinType.FullOuter;
+
+                    if (isOuterJoin || options.AggressiveJoinStripping)
+                        joinConditionRefs = CollectColumnReferences(searchCondition);
+                }
 
                 var columns = references.ColumnReferences
                     .Where(c => joinConditionRefs == null || !joinConditionRefs.Contains(c))
