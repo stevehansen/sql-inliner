@@ -54,19 +54,24 @@ public sealed class ReferencesVisitor : TSqlFragmentVisitor
     public List<NamedTableReference> Views { get; } = new();
 
     /// <summary>
-    /// Maps named table references that are the second table in a qualified join to their join's search condition.
+    /// Gets all the derived table references (inline subqueries) that are the second table in a qualified join.
     /// </summary>
-    public Dictionary<NamedTableReference, BooleanExpression> JoinConditions { get; } = new();
+    public List<QueryDerivedTable> DerivedTables { get; } = new();
 
     /// <summary>
-    /// Maps named table references that are the second table in a qualified join to their join type (Inner, LeftOuter, etc.).
+    /// Maps table references that are the second table in a qualified join to their join's search condition.
     /// </summary>
-    public Dictionary<NamedTableReference, QualifiedJoinType> JoinTypes { get; } = new();
+    public Dictionary<TableReference, BooleanExpression> JoinConditions { get; } = new();
 
     /// <summary>
-    /// Maps named table references that are the second table in a qualified join to any <see cref="JoinHint"/> parsed from SQL comments.
+    /// Maps table references that are the second table in a qualified join to their join type (Inner, LeftOuter, etc.).
     /// </summary>
-    public Dictionary<NamedTableReference, JoinHint> JoinHints { get; } = new();
+    public Dictionary<TableReference, QualifiedJoinType> JoinTypes { get; } = new();
+
+    /// <summary>
+    /// Maps table references that are the second table in a qualified join to any <see cref="JoinHint"/> parsed from SQL comments.
+    /// </summary>
+    public Dictionary<TableReference, JoinHint> JoinHints { get; } = new();
 
     /// <inheritdoc />
     public override void ExplicitVisit(FunctionCall node)
@@ -116,15 +121,18 @@ public sealed class ReferencesVisitor : TSqlFragmentVisitor
     {
         base.ExplicitVisit(node);
 
-        if (node.SecondTableReference is NamedTableReference namedTable)
-        {
-            JoinConditions[namedTable] = node.SearchCondition;
-            JoinTypes[namedTable] = node.QualifiedJoinType;
+        var secondTable = node.SecondTableReference;
+        if (secondTable is QueryDerivedTable derivedTable)
+            DerivedTables.Add(derivedTable);
+        else if (secondTable is not NamedTableReference)
+            return;
 
-            var hints = ParseJoinHints(node);
-            if (hints != JoinHint.None)
-                JoinHints[namedTable] = hints;
-        }
+        JoinConditions[secondTable] = node.SearchCondition;
+        JoinTypes[secondTable] = node.QualifiedJoinType;
+
+        var hints = ParseJoinHints(node);
+        if (hints != JoinHint.None)
+            JoinHints[secondTable] = hints;
     }
 
     /// <summary>

@@ -329,47 +329,57 @@ public sealed class DatabaseViewInliner
 
     private void DetectUnusedTablesToStrip(ReferencesVisitor references, List<TableReference> toRemove)
     {
-        if (options.StripUnusedJoins && references.Tables.Count > 0)
+        if (!options.StripUnusedJoins)
+            return;
+
+        foreach (var referenced in references.Tables)
         {
-            foreach (var referenced in references.Tables)
+            var alias = referenced.Alias?.Value ?? referenced.SchemaObject.BaseIdentifier.Value;
+            TryStripUnusedJoin(references, toRemove, referenced, alias);
+        }
+
+        foreach (var referenced in references.DerivedTables)
+        {
+            if (referenced.Alias != null)
+                TryStripUnusedJoin(references, toRemove, referenced, referenced.Alias.Value);
+        }
+    }
+
+    private void TryStripUnusedJoin(ReferencesVisitor references, List<TableReference> toRemove, TableReference referenced, string alias)
+    {
+        // Exclude column references from the join condition when it's safe to do so.
+        // For LEFT/RIGHT OUTER JOINs this is always safe — they can't reduce rows.
+        // For INNER JOINs, only exclude when AggressiveJoinStripping is opted in,
+        // because the ON clause may act as a filter that affects row counts.
+        HashSet<ColumnReferenceExpression>? joinConditionRefs = null;
+        if (references.JoinConditions.TryGetValue(referenced, out var searchCondition))
+        {
+            var isOuterJoin = references.JoinTypes.TryGetValue(referenced, out var joinType)
+                && joinType is QualifiedJoinType.LeftOuter or QualifiedJoinType.RightOuter or QualifiedJoinType.FullOuter;
+
+            if (isOuterJoin || options.AggressiveJoinStripping)
+                joinConditionRefs = CollectColumnReferences(searchCondition);
+        }
+
+        var columns = references.ColumnReferences
+            .Where(c => joinConditionRefs == null || !joinConditionRefs.Contains(c))
+            .Where(c => c.MultiPartIdentifier.Count == 1 || c.MultiPartIdentifier[0].Value == alias)
+            .Select(c => c.MultiPartIdentifier.Identifiers.Last().Value);
+
+        // When we exclude join condition refs, the threshold drops to 0 (no external usage).
+        // Without exclusion, the original threshold of 1 accounts for the join key reference.
+        var threshold = joinConditionRefs != null ? 0 : 1;
+        if (columns.Count() <= threshold)
+        {
+            // If the join has cardinality hints, verify removal is safe before stripping.
+            if (references.JoinHints.TryGetValue(referenced, out var hint))
             {
-                var alias = referenced.Alias?.Value ?? referenced.SchemaObject.BaseIdentifier.Value;
-
-                // Exclude column references from the join condition when it's safe to do so.
-                // For LEFT/RIGHT OUTER JOINs this is always safe — they can't reduce rows.
-                // For INNER JOINs, only exclude when AggressiveJoinStripping is opted in,
-                // because the ON clause may act as a filter that affects row counts.
-                HashSet<ColumnReferenceExpression>? joinConditionRefs = null;
-                if (references.JoinConditions.TryGetValue(referenced, out var searchCondition))
-                {
-                    var isOuterJoin = references.JoinTypes.TryGetValue(referenced, out var joinType)
-                        && joinType is QualifiedJoinType.LeftOuter or QualifiedJoinType.RightOuter or QualifiedJoinType.FullOuter;
-
-                    if (isOuterJoin || options.AggressiveJoinStripping)
-                        joinConditionRefs = CollectColumnReferences(searchCondition);
-                }
-
-                var columns = references.ColumnReferences
-                    .Where(c => joinConditionRefs == null || !joinConditionRefs.Contains(c))
-                    .Where(c => c.MultiPartIdentifier.Count == 1 || c.MultiPartIdentifier[0].Value == alias)
-                    .Select(c => c.MultiPartIdentifier.Identifiers.Last().Value);
-
-                // When we exclude join condition refs, the threshold drops to 0 (no external usage).
-                // Without exclusion, the original threshold of 1 accounts for the join key reference.
-                var threshold = joinConditionRefs != null ? 0 : 1;
-                if (columns.Count() <= threshold)
-                {
-                    // If the join has cardinality hints, verify removal is safe before stripping.
-                    if (references.JoinHints.TryGetValue(referenced, out var hint))
-                    {
-                        references.JoinTypes.TryGetValue(referenced, out var joinType);
-                        if (!IsJoinSafeToRemove(hint, joinType))
-                            continue;
-                    }
-                    toRemove.Add(referenced);
-                    TotalJoinsStripped++;
-                }
+                references.JoinTypes.TryGetValue(referenced, out var joinType);
+                if (!IsJoinSafeToRemove(hint, joinType))
+                    return;
             }
+            toRemove.Add(referenced);
+            TotalJoinsStripped++;
         }
     }
 
