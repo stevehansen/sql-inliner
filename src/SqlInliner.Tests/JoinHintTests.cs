@@ -210,6 +210,98 @@ public class JoinHintTests
     }
 
     [Test]
+    public void RequiredWithoutUnique_KeptWhenUnused()
+    {
+        // @join:required alone (without @unique) should NOT allow removal — the join could fan out.
+        var connection = new DatabaseConnection();
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VItems"),
+            "CREATE VIEW dbo.VItems AS SELECT a.Id, a.Name, b.Code FROM dbo.A a LEFT JOIN /* @join:required */ dbo.B b ON a.BId = b.Id");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id, v.Name FROM dbo.VItems v";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, options);
+        inliner.Errors.ShouldBeEmpty();
+        inliner.Result.ShouldNotBeNull();
+        // @required without @unique → not safe (could fan out) → kept
+        inliner.Result!.ConvertedSql.ShouldContain("dbo.B");
+        inliner.Result.ConvertedSql.ShouldContain("dbo.A");
+    }
+
+    [Test]
+    public void RightJoinUniqueHint_KeptWhenUnused()
+    {
+        // RIGHT JOIN + @unique is not handled as safe — kept even when unused.
+        var connection = new DatabaseConnection();
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VItems"),
+            "CREATE VIEW dbo.VItems AS SELECT a.Id, a.Name, b.Code FROM dbo.A a RIGHT JOIN /* @join:unique */ dbo.B b ON a.BId = b.Id");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id, v.Name FROM dbo.VItems v";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, options);
+        inliner.Errors.ShouldBeEmpty();
+        inliner.Result.ShouldNotBeNull();
+        // RIGHT JOIN falls into the default "not safe" case → kept
+        inliner.Result!.ConvertedSql.ShouldContain("dbo.B");
+        inliner.Result.ConvertedSql.ShouldContain("dbo.A");
+    }
+
+    [Test]
+    public void SingleLineCommentHint_Parsed()
+    {
+        // Single-line comment syntax (-- @join:unique) should also be recognized.
+        var connection = new DatabaseConnection();
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VItems"),
+            @"CREATE VIEW dbo.VItems AS SELECT a.Id, a.Name, b.Code FROM dbo.A a
+LEFT JOIN -- @join:unique
+dbo.B b ON a.BId = b.Id");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id, v.Name FROM dbo.VItems v";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, options);
+        inliner.Errors.ShouldBeEmpty();
+        inliner.Result.ShouldNotBeNull();
+        inliner.Result!.ConvertedSql.ShouldNotContain("dbo.B");
+        inliner.Result.ConvertedSql.ShouldContain("dbo.A");
+    }
+
+    [Test]
+    public void AggressiveStripping_RespectsHints()
+    {
+        // AggressiveJoinStripping should still respect hints — INNER + @unique without @required is kept.
+        var connection = new DatabaseConnection();
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VItems"),
+            "CREATE VIEW dbo.VItems AS SELECT a.Id, a.Name FROM dbo.A a INNER JOIN /* @join:unique */ dbo.B b ON a.BId = b.Id AND b.Type = 'X'");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id, v.Name FROM dbo.VItems v";
+
+        var aggressiveOptions = new InlinerOptions { StripUnusedColumns = true, StripUnusedJoins = true, AggressiveJoinStripping = true };
+        var inliner = new DatabaseViewInliner(connection, viewSql, aggressiveOptions);
+        inliner.Errors.ShouldBeEmpty();
+        inliner.Result.ShouldNotBeNull();
+        // Aggressive mode would normally strip B, but the hint says INNER without @required → not safe → kept
+        inliner.Result!.ConvertedSql.ShouldContain("dbo.B");
+        inliner.Result.ConvertedSql.ShouldContain("dbo.A");
+    }
+
+    [Test]
+    public void AggressiveStripping_StripsWhenHintAllows()
+    {
+        // AggressiveJoinStripping + INNER @unique @required should strip.
+        var connection = new DatabaseConnection();
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VItems"),
+            "CREATE VIEW dbo.VItems AS SELECT a.Id, a.Name FROM dbo.A a INNER JOIN /* @join:unique @join:required */ dbo.B b ON a.BId = b.Id AND b.Type = 'X'");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id, v.Name FROM dbo.VItems v";
+
+        var aggressiveOptions = new InlinerOptions { StripUnusedColumns = true, StripUnusedJoins = true, AggressiveJoinStripping = true };
+        var inliner = new DatabaseViewInliner(connection, viewSql, aggressiveOptions);
+        inliner.Errors.ShouldBeEmpty();
+        inliner.Result.ShouldNotBeNull();
+        inliner.Result!.ConvertedSql.ShouldNotContain("dbo.B");
+        inliner.Result.ConvertedSql.ShouldContain("dbo.A");
+    }
+
+    [Test]
     public void JoinHintsParsedFromReferencesVisitor()
     {
         // Verify that hint parsing populates the JoinHints and JoinTypes dictionaries.
