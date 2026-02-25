@@ -42,6 +42,20 @@ public class InlinerOptionsTests
     }
 
     [Test]
+    public void DefaultOptions_FlattenDerivedTablesIsFalse()
+    {
+        var options = new InlinerOptions();
+        options.FlattenDerivedTables.ShouldBeFalse();
+    }
+
+    [Test]
+    public void SetFlattenDerivedTables_CanBeEnabled()
+    {
+        var options = new InlinerOptions { FlattenDerivedTables = true };
+        options.FlattenDerivedTables.ShouldBeTrue();
+    }
+
+    [Test]
     public void ToMetadataString_ProducesExpectedFormat()
     {
         var options = new InlinerOptions
@@ -50,13 +64,13 @@ public class InlinerOptionsTests
             StripUnusedJoins = true,
             AggressiveJoinStripping = false,
         };
-        options.ToMetadataString().ShouldBe("StripUnusedColumns=True, StripUnusedJoins=True, AggressiveJoinStripping=False");
+        options.ToMetadataString().ShouldBe("StripUnusedColumns=True, StripUnusedJoins=True, AggressiveJoinStripping=False, FlattenDerivedTables=False");
     }
 
     [Test]
     public void TryParseFromMetadata_ParsesValidOptionsLine()
     {
-        const string sql = "/*\n-- Options: StripUnusedColumns=True, StripUnusedJoins=True, AggressiveJoinStripping=True\n*/\nCREATE VIEW dbo.V AS SELECT 1";
+        const string sql = "/*\n-- Options: StripUnusedColumns=True, StripUnusedJoins=True, AggressiveJoinStripping=True, FlattenDerivedTables=True\n*/\nCREATE VIEW dbo.V AS SELECT 1";
 
         var options = InlinerOptions.TryParseFromMetadata(sql);
 
@@ -64,6 +78,7 @@ public class InlinerOptionsTests
         options.StripUnusedColumns.ShouldBeTrue();
         options.StripUnusedJoins.ShouldBeTrue();
         options.AggressiveJoinStripping.ShouldBeTrue();
+        options.FlattenDerivedTables.ShouldBeTrue();
     }
 
     [Test]
@@ -94,6 +109,7 @@ public class InlinerOptionsTests
             StripUnusedColumns = false,
             StripUnusedJoins = true,
             AggressiveJoinStripping = true,
+            FlattenDerivedTables = true,
         };
 
         var sql = $"/*\n-- Options: {original.ToMetadataString()}\n*/\nCREATE VIEW dbo.V AS SELECT 1";
@@ -103,5 +119,6 @@ public class InlinerOptionsTests
         parsed.StripUnusedColumns.ShouldBe(original.StripUnusedColumns);
         parsed.StripUnusedJoins.ShouldBe(original.StripUnusedJoins);
         parsed.AggressiveJoinStripping.ShouldBe(original.AggressiveJoinStripping);
+        parsed.FlattenDerivedTables.ShouldBe(original.FlattenDerivedTables);
     }
 }

@@ -14,7 +14,7 @@ public sealed class InlinerResult
         KnownViews = knownViews;
         ConvertedSql = convertedSql;
 
-        MetadataComment = $"/*\n-- Generated on {DateTime.Now:G} by {ThisAssembly.AppName} in {elapsed}\n{DatabaseView.BeginOriginal}\n{originalSql}\n{DatabaseView.EndOriginal}\n\n-- Options: {options.ToMetadataString()}\n\n-- Referenced views ({knownViews.Count}):\n{string.Join("\n", knownViews.Keys)}\n\n-- Removed: {inliner.TotalSelectColumnsStripped} select columns and {inliner.TotalJoinsStripped} joins\n\n-- Warnings ({inliner.Warnings.Count}):\n{string.Join("\n", inliner.Warnings)}\n\n-- Errors ({inliner.Errors.Count}):\n{string.Join("\n", inliner.Errors)}\n\n*/\n";
+        MetadataComment = $"/*\n-- Generated on {DateTime.Now:G} by {ThisAssembly.AppName} in {elapsed}\n{DatabaseView.BeginOriginal}\n{originalSql}\n{DatabaseView.EndOriginal}\n\n-- Options: {options.ToMetadataString()}\n\n-- Referenced views ({knownViews.Count}):\n{string.Join("\n", knownViews.Keys)}\n\n-- Removed: {inliner.TotalSelectColumnsStripped} select columns and {inliner.TotalJoinsStripped} joins and flattened {inliner.TotalDerivedTablesFlattened} derived tables\n\n-- Warnings ({inliner.Warnings.Count}):\n{string.Join("\n", inliner.Warnings)}\n\n-- Errors ({inliner.Errors.Count}):\n{string.Join("\n", inliner.Errors)}\n\n*/\n";
         Sql = MetadataComment + convertedSql + "\n\n";
     }
 

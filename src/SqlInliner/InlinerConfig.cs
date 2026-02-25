@@ -17,6 +17,7 @@ internal sealed class InlinerConfig
     public bool? StripUnusedColumns { get; set; }
     public bool? StripUnusedJoins { get; set; }
     public bool? AggressiveJoinStripping { get; set; }
+    public bool? FlattenDerivedTables { get; set; }
     public bool? GenerateCreateOrAlter { get; set; }
 
     /// <summary>

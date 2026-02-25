@@ -24,6 +24,13 @@ public sealed class InlinerOptions
     public bool AggressiveJoinStripping { get; set; }
 
     /// <summary>
+    /// Gets or sets whether derived tables (subqueries) produced by inlining should be flattened into the outer query
+    /// when safe to do so. Phase 1 handles single-table derived tables without GROUP BY, HAVING, TOP, DISTINCT, or UNION.
+    /// Defaults to <c>false</c> (experimental).
+    /// </summary>
+    public bool FlattenDerivedTables { get; set; }
+
+    /// <summary>
     /// Gets the recommended options that should be used for optimal results.
     /// </summary>
     public static InlinerOptions Recommended()
@@ -39,7 +46,7 @@ public sealed class InlinerOptions
     /// </summary>
     public string ToMetadataString()
     {
-        return $"StripUnusedColumns={StripUnusedColumns}, StripUnusedJoins={StripUnusedJoins}, AggressiveJoinStripping={AggressiveJoinStripping}";
+        return $"StripUnusedColumns={StripUnusedColumns}, StripUnusedJoins={StripUnusedJoins}, AggressiveJoinStripping={AggressiveJoinStripping}, FlattenDerivedTables={FlattenDerivedTables}";
     }
 
     /// <summary>
@@ -81,6 +88,10 @@ public sealed class InlinerOptions
                 case nameof(AggressiveJoinStripping):
                     if (bool.TryParse(value, out var aggressive))
                         options.AggressiveJoinStripping = aggressive;
+                    break;
+                case nameof(FlattenDerivedTables):
+                    if (bool.TryParse(value, out var flatten))
+                        options.FlattenDerivedTables = flatten;
                     break;
                 // Unknown keys are silently ignored for forward compatibility
             }

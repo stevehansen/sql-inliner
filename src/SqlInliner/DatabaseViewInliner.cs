@@ -80,6 +80,14 @@ public sealed class DatabaseViewInliner
         // Inline views
         Inline(view);
 
+        // Optionally flatten derived tables produced by inlining
+        if (this.options.FlattenDerivedTables)
+        {
+            var flattener = new DerivedTableFlattener();
+            TotalDerivedTablesFlattened = flattener.Flatten(tree);
+            Warnings.AddRange(flattener.Warnings);
+        }
+
         // Output result, starting with original SQL as comment + extra information from checking code (e.g. list used nested views and functions)
 
         new Sql150ScriptGenerator(GetOptions()).GenerateScript(tree, out var formattedSql);
@@ -116,6 +124,11 @@ public sealed class DatabaseViewInliner
     /// Gets the total of <see cref="NamedTableReference"/> that we stripped.
     /// </summary>
     public int TotalJoinsStripped { get; private set; }
+
+    /// <summary>
+    /// Gets the total of <see cref="QueryDerivedTable"/> nodes that were flattened into the outer query.
+    /// </summary>
+    public int TotalDerivedTablesFlattened { get; private set; }
 
     /// <summary>
     /// Gets the resulting SQL statement that should be used as replacement.

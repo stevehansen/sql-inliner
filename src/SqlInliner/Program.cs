@@ -19,6 +19,7 @@ internal static class Program
         var stripUnusedColumnsOption = new Option<bool>("--strip-unused-columns", "-suc") { DefaultValueFactory = _ => true, Description = "Remove columns from nested views that the outer view does not reference" };
         var stripUnusedJoinsOption = new Option<bool>("--strip-unused-joins", "-suj") { Description = "Remove joins whose tables contribute no columns to the result. Use @join:unique / @join:required hints on JOINs to allow safe removal (see README)" };
         var aggressiveJoinStrippingOption = new Option<bool>("--aggressive-join-stripping") { Description = "Exclude join-condition column references from the usage count. Allows stripping joins where the table only appears in its own ON clause. Use with care: can change results for INNER JOINs where the ON clause filters rows" };
+        var flattenDerivedTablesOption = new Option<bool>("--flatten-derived-tables", "-fdt") { Description = "Flatten simple derived tables (subqueries) produced by inlining into the outer query. Experimental: Phase 1 handles single-table subqueries without GROUP BY, HAVING, TOP, DISTINCT, or UNION" };
         var generateCreateOrAlterOption = new Option<bool>("--generate-create-or-alter") { DefaultValueFactory = _ => true, Description = "Wrap output in a CREATE OR ALTER VIEW statement" };
         var outputPathOption = new Option<FileInfo?>("--output-path", "-op") { Description = "Write the resulting SQL to a file instead of the console" };
         var logPathOption = new Option<FileInfo?>("--log-path", "-lp") { Description = "Write warnings, errors, and timing info to a file" };
@@ -52,6 +53,7 @@ internal static class Program
                 stripUnusedColumnsOption,
                 stripUnusedJoinsOption,
                 aggressiveJoinStrippingOption,
+                flattenDerivedTablesOption,
                 generateCreateOrAlterOption,
                 outputPathOption,
                 logPathOption,
@@ -77,6 +79,7 @@ internal static class Program
             var stripUnusedColumns = ResolveOption(parseResult, stripUnusedColumnsOption, config?.StripUnusedColumns);
             var stripUnusedJoins = ResolveOption(parseResult, stripUnusedJoinsOption, config?.StripUnusedJoins);
             var aggressiveJoinStripping = ResolveOption(parseResult, aggressiveJoinStrippingOption, config?.AggressiveJoinStripping);
+            var flattenDerivedTables = ResolveOption(parseResult, flattenDerivedTablesOption, config?.FlattenDerivedTables);
             var generateCreateOrAlter = ResolveOption(parseResult, generateCreateOrAlterOption, config?.GenerateCreateOrAlter);
             var outputPath = parseResult.GetValue(outputPathOption);
             var logPath = parseResult.GetValue(logPathOption);
@@ -125,6 +128,7 @@ internal static class Program
                 StripUnusedColumns = stripUnusedColumns,
                 StripUnusedJoins = stripUnusedJoins,
                 AggressiveJoinStripping = aggressiveJoinStripping,
+                FlattenDerivedTables = flattenDerivedTables,
             });
 
             if (outputPath != null)
