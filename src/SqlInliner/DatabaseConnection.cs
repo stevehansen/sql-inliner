@@ -72,6 +72,9 @@ public sealed class DatabaseConnection
     {
         if (!viewDefinitions.TryGetValue(viewName, out var view))
         {
+            if (Connection == null)
+                throw new InvalidOperationException("No database connection available.");
+
             view = Connection.Query<string>($"SELECT OBJECT_DEFINITION(object_id('{viewName}'))").First();
 
             var originalStart = view.IndexOf(DatabaseView.BeginOriginal, StringComparison.Ordinal);
@@ -116,7 +119,7 @@ public sealed class DatabaseConnection
         if (Connection == null)
             throw new InvalidOperationException("No database connection available.");
 
-        return Connection.ExecuteScalar<T>(sql);
+        return Connection.ExecuteScalar<T>(sql)!;
     }
 
     /// <summary>
