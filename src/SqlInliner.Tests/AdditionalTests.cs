@@ -194,4 +194,69 @@ public class AdditionalTests
         // Status should be kept — INNER JOIN ON clause may filter rows
         inliner.Result!.ConvertedSql.ShouldContain("dbo.Status");
     }
+
+    [Test]
+    public void KeepLeftOuterJoin_WhenColumnUsedInSelect()
+    {
+        // Even though we auto-exclude ON-clause refs for outer joins, a column
+        // referenced in the SELECT should prevent stripping.
+        var connection = new DatabaseConnection();
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VPersonGsms2"),
+            @"CREATE VIEW dbo.VPersonGsms2 AS
+              SELECT p.Id, p.Name, pg.GsmNumber
+              FROM dbo.Person p
+              LEFT JOIN dbo.PersonGsms pg ON pg.PersonId = p.Id AND pg.DefaultInd = 1");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id, v.GsmNumber FROM dbo.VPersonGsms2 v";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, InlinerOptions.Recommended());
+        inliner.Errors.ShouldBeEmpty();
+        inliner.Result.ShouldNotBeNull();
+        // GsmNumber is used in the outer SELECT — PersonGsms must be kept
+        inliner.Result!.ConvertedSql.ShouldContain("PersonGsms");
+    }
+
+    [Test]
+    public void KeepLeftOuterJoin_WhenColumnUsedInWhere()
+    {
+        // A LEFT JOIN column referenced in the outer WHERE should prevent stripping,
+        // even though ON-clause refs are excluded.
+        var connection = new DatabaseConnection();
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VPersonGsms3"),
+            @"CREATE VIEW dbo.VPersonGsms3 AS
+              SELECT p.Id, p.Name, pg.GsmNumber
+              FROM dbo.Person p
+              LEFT JOIN dbo.PersonGsms pg ON pg.PersonId = p.Id AND pg.DefaultInd = 1");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id, v.Name FROM dbo.VPersonGsms3 v WHERE v.GsmNumber IS NOT NULL";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, InlinerOptions.Recommended());
+        inliner.Errors.ShouldBeEmpty();
+        inliner.Result.ShouldNotBeNull();
+        // GsmNumber is used in the outer WHERE — PersonGsms must be kept
+        inliner.Result!.ConvertedSql.ShouldContain("PersonGsms");
+    }
+
+    [Test]
+    public void KeepRightOuterJoin_FirstTableNotTracked()
+    {
+        // In a RIGHT JOIN, the first table (PersonGsms) is the non-preserved side.
+        // JoinConditions/JoinTypes only track the second table reference, so the
+        // first table won't get auto-exclusion of ON-clause refs. This is a known
+        // limitation — RIGHT JOINs are rare in practice and can be rewritten as LEFT JOINs.
+        var connection = new DatabaseConnection();
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VPersonRight"),
+            @"CREATE VIEW dbo.VPersonRight AS
+              SELECT p.Id, p.Name, pg.GsmNumber
+              FROM dbo.PersonGsms pg
+              RIGHT JOIN dbo.Person p ON pg.PersonId = p.Id AND pg.DefaultInd = 1");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id, v.Name FROM dbo.VPersonRight v";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, InlinerOptions.Recommended());
+        inliner.Errors.ShouldBeEmpty();
+        inliner.Result.ShouldNotBeNull();
+        // PersonGsms is the first table in a RIGHT JOIN — not tracked for auto-exclusion, so kept
+        inliner.Result!.ConvertedSql.ShouldContain("PersonGsms");
+    }
 }
