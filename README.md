@@ -157,6 +157,44 @@ sqlinliner \
   -lp "./output/VHeavy.log"
 ```
 
+## Interactive optimization wizard
+
+The `optimize` subcommand provides a guided, interactive workflow for optimizing a view against a backup or development database. It walks you through inlining, deploying, validating correctness, and benchmarking performance — all in one session.
+
+> **Warning:** Only run `optimize` against a backup or development database. It will execute `CREATE OR ALTER VIEW` statements directly.
+
+```bash
+sqlinliner optimize \
+  -cs "Server=.;Database=TestBackup;Integrated Security=true" \
+  -vn "dbo.VHeavy"
+```
+
+### Workflow steps
+
+1. **Connect & Warn** — Prompts you to confirm the database is a backup/development copy.
+2. **Select View** — Validates the view exists and shows metadata (SQL length, nested view count).
+3. **Inline** — Runs the inliner with the current options and saves the result to a session directory.
+4. **Review** — Optionally opens the generated SQL in your default editor. Detects manual edits and offers to regenerate.
+5. **Deploy** — Executes `CREATE OR ALTER VIEW [schema].[ViewName_Inlined]` on the database.
+6. **Validate** — Compares the original and inlined views with `COUNT` and `EXCEPT` (both directions) to verify identical results.
+7. **Iterate** — Toggle options (strip-joins, aggressive mode) and re-inline, or continue to benchmarking.
+8. **Benchmark** — Uses `SET STATISTICS TIME ON` / `SET STATISTICS IO ON` to compare CPU time, elapsed time, and logical reads between the original and inlined views.
+9. **Summary & Cleanup** — Shows results, saves a `recommended.sql`, and prints a `DROP VIEW` statement (never executed automatically).
+
+### Options
+
+| Option | Alias | Type | Description |
+|---|---|---|---|
+| `--connection-string` | `-cs` | string | Connection string (required) |
+| `--view-name` | `-vn` | string | Fully qualified view name. If omitted, you will be prompted. |
+
+### Session directory
+
+Each optimization session creates a directory in the current working directory (e.g. `optimize-VHeavy-20260225T143022/`) containing:
+- `iteration-1.sql`, `iteration-2.sql`, ... — SQL from each iteration
+- `recommended.sql` — the final recommended version
+- `session.log` — timestamped log of all actions
+
 ## Feature details
 
 ### Column stripping

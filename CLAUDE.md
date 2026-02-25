@@ -43,6 +43,20 @@ The inlining pipeline flows through these core classes:
 
 7. **InlinerResult** — Formats the final output with a metadata comment containing original SQL, referenced views list, and strip statistics.
 
+### Optimize subsystem (`Optimize/` directory)
+
+Conditionally compiled (`#if !RELEASELIBRARY`) and excluded from the library build via `<Compile Remove="Optimize\**" />`.
+
+8. **OptimizeCommand** — System.CommandLine subcommand (`optimize`) with `--connection-string` and `--view-name` options. Registered in `Program.cs` via `rootCommand.Add(OptimizeCommand.Create())`.
+
+9. **OptimizeSession** — Orchestrates the 9-step interactive workflow (connect → select → inline → review → deploy → validate → iterate → benchmark → summary). All I/O goes through `IConsoleWizard` for testability.
+
+10. **ConsoleWizard** / **IConsoleWizard** — Abstraction for interactive console I/O (prompts, colored output, tables). Tests use a `MockWizard` with queued answers.
+
+11. **SessionDirectory** — Manages a session folder (`optimize-{name}-{timestamp}/`), saves iteration files, computes SHA256 hashes for edit detection, and writes a session log.
+
+12. **QueryRunner** — Executes validation queries (COUNT, EXCEPT) and benchmarks (SET STATISTICS TIME/IO via `SqlConnection.InfoMessage`) with configurable command timeouts.
+
 ### Key design decisions
 
 - **ScriptDom AST manipulation**: The tool modifies the parsed AST in-place rather than doing string manipulation. SQL is regenerated via `Sql150ScriptGenerator`.
@@ -63,4 +77,4 @@ Tests use **NUnit** with **Shouldly** assertions. The standard pattern:
 
 - **Debug** — Standard development build
 - **Release** — Single-file, trimmed, ReadyToRun publish (for CLI distribution)
-- **ReleaseLibrary** — Multi-target library output (net472, netstandard2.0, netcoreapp3.1, net6.0, net8.0), excludes Program.cs and System.CommandLine
+- **ReleaseLibrary** — Multi-target library output (net472, netstandard2.0, net8.0, net9.0, net10.0), excludes Program.cs, System.CommandLine, and `Optimize\**`
