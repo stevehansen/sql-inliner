@@ -11,16 +11,36 @@ internal static class Program
 {
     private static int Main(string[] args)
     {
-        var connectionStringOption = new Option<string>("--connection-string", "-cs") { Description = "Contains the connection string to connect to the database" };
-        var viewNameOption = new Option<string>("--view-name", "-vn") { Description = "The name of the view to inline" };
-        var viewPathOption = new Option<FileInfo>("--view-path", "-vp") { Description = "The path of the view as a .sql file (including create statement)" };
-        var stripUnusedColumnsOption = new Option<bool>("--strip-unused-columns", "-suc") { DefaultValueFactory = _ => true };
-        var stripUnusedJoinsOption = new Option<bool>("--strip-unused-joins", "-suj");
-        var aggressiveJoinStrippingOption = new Option<bool>("--aggressive-join-stripping") { Description = "Exclude join condition references from usage count when stripping joins (can change results for INNER JOINs)" };
-        var generateCreateOrAlterOption = new Option<bool>("--generate-create-or-alter") { DefaultValueFactory = _ => true };
-        var outputPathOption = new Option<FileInfo?>("--output-path", "-op") { Description = "Optional path of the file to write the resulting SQL to" };
-        var logPathOption = new Option<FileInfo?>("--log-path", "-lp") { Description = "Optional path of the file to write debug information to" };
-        var rootCommand = new RootCommand(ThisAssembly.AppName)
+        var connectionStringOption = new Option<string>("--connection-string", "-cs") { Description = "Connection string to the SQL Server database" };
+        var viewNameOption = new Option<string>("--view-name", "-vn") { Description = "Fully qualified name of the view to inline (e.g. dbo.MyView)" };
+        var viewPathOption = new Option<FileInfo>("--view-path", "-vp") { Description = "Path to a .sql file containing a CREATE VIEW statement" };
+        var stripUnusedColumnsOption = new Option<bool>("--strip-unused-columns", "-suc") { DefaultValueFactory = _ => true, Description = "Remove columns from nested views that the outer view does not reference" };
+        var stripUnusedJoinsOption = new Option<bool>("--strip-unused-joins", "-suj") { Description = "Remove joins whose tables contribute no columns to the result. Use @join:unique / @join:required hints on JOINs to allow safe removal (see README)" };
+        var aggressiveJoinStrippingOption = new Option<bool>("--aggressive-join-stripping") { Description = "Exclude join-condition column references from the usage count. Allows stripping joins where the table only appears in its own ON clause. Use with care: can change results for INNER JOINs where the ON clause filters rows" };
+        var generateCreateOrAlterOption = new Option<bool>("--generate-create-or-alter") { DefaultValueFactory = _ => true, Description = "Wrap output in a CREATE OR ALTER VIEW statement" };
+        var outputPathOption = new Option<FileInfo?>("--output-path", "-op") { Description = "Write the resulting SQL to a file instead of the console" };
+        var logPathOption = new Option<FileInfo?>("--log-path", "-lp") { Description = "Write warnings, errors, and timing info to a file" };
+
+        var description = $"""
+            {ThisAssembly.AppName} — Optimizes SQL Server views by inlining nested views into a single flattened query.
+
+            At least one of --view-name or --view-path is required.
+            When both are supplied, --view-path provides the main view while nested views are fetched from the database via --connection-string.
+
+            Examples:
+              sqlinliner -cs "Server=.;Database=Test;Integrated Security=true" -vn "dbo.VHeavy" --strip-unused-joins
+              sqlinliner -vp "./views/MyView.sql" --strip-unused-joins
+              sqlinliner -vp "./views/MyView.sql" --generate-create-or-alter false
+
+            Join hints — annotate JOINs in your SQL to enable safe join removal:
+              LEFT JOIN /* @join:unique */ dbo.Address a ON a.PersonId = p.Id
+              INNER JOIN /* @join:unique @join:required */ dbo.Status s ON s.Id = p.StatusId
+
+            For programmatic usage, install the SqlInliner.Library NuGet package:
+              dotnet add package SqlInliner.Library
+            """;
+
+        var rootCommand = new RootCommand(description)
             {
                 connectionStringOption,
                 viewNameOption,
@@ -31,7 +51,6 @@ internal static class Program
                 generateCreateOrAlterOption,
                 outputPathOption,
                 logPathOption,
-                // TODO: DatabaseView.parser (hardcoded to TSql150Parser)
             };
 
         rootCommand.SetAction(parseResult =>
