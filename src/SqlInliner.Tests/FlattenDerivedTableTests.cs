@@ -923,4 +923,119 @@ public class FlattenDerivedTableTests
         result.ConvertedSql.ShouldContain("p.Id");
         result.ConvertedSql.ShouldContain("p.Name");
     }
+
+    // ========================================================================
+    // Regression: unqualified column references and GROUP BY rewriting
+    // ========================================================================
+
+    [Test]
+    public void UnqualifiedColumnInInnerWhere_QualifiedAfterFlatten()
+    {
+        // Inner view has unqualified 'CodeType' in WHERE — should be qualified to 'c.CodeType'
+        // to avoid ambiguity when promoted to outer scope with other tables
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VStatus"),
+            "CREATE VIEW dbo.VStatus AS SELECT c.Id, c.Code FROM dbo.Codes c WHERE CodeType = 'STATUS'");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id, v.Code, t.Name FROM dbo.VStatus v INNER JOIN dbo.Other t ON t.Id = v.Id";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        result.ConvertedSql.ShouldNotContain("(SELECT");
+        // Unqualified 'CodeType' should be qualified after flattening
+        result.ConvertedSql.ShouldNotContain("(CodeType");
+        result.ConvertedSql.ShouldContain("c.CodeType");
+    }
+
+    [Test]
+    public void MultipleViewsWithUnqualifiedWhere_AllQualified()
+    {
+        // Multiple inner views with unqualified WHERE refs — all should be qualified
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VStatus1"),
+            "CREATE VIEW dbo.VStatus1 AS SELECT c.Id, c.Code FROM dbo.Codes c WHERE CodeType = 'STATUS'");
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VStatus2"),
+            "CREATE VIEW dbo.VStatus2 AS SELECT c.Id, c.Code FROM dbo.Codes c WHERE CodeType = 'CARCAT'");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT a.Id, a.Code, b.Code AS Code2 FROM dbo.VStatus1 a INNER JOIN dbo.VStatus2 b ON b.Id = a.Id";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        // Both should be flattened with qualified WHERE conditions
+        result.ConvertedSql.ShouldNotContain("(SELECT");
+        inliner.TotalDerivedTablesFlattened.ShouldBe(2);
+    }
+
+    [Test]
+    public void OuterGroupByReferencingDerivedTable_RewrittenCorrectly()
+    {
+        // Outer query has GROUP BY referencing a derived table column — must be rewritten
+        // Use 2+ columns from the inner view to avoid StripUnusedJoins removing it
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VPeople"),
+            "CREATE VIEW dbo.VPeople AS SELECT p.Id, p.PersonId, p.Name FROM dbo.People p");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.PersonId, v.Name, COUNT(*) Cnt FROM dbo.VPeople v GROUP BY v.PersonId, v.Name";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        result.ConvertedSql.ShouldNotContain("(SELECT");
+        // GROUP BY should reference inner alias, not derived alias
+        result.ConvertedSql.ShouldContain("p.PersonId");
+        result.ConvertedSql.ShouldContain("p.Name");
+        result.ConvertedSql.ShouldNotContain("v.PersonId");
+    }
+
+    [Test]
+    public void OuterHavingReferencingDerivedTable_RewrittenCorrectly()
+    {
+        // Use 2+ columns from the inner view to avoid StripUnusedJoins removing it
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VPeople"),
+            "CREATE VIEW dbo.VPeople AS SELECT p.Id, p.PersonId, p.Name FROM dbo.People p");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.PersonId, v.Name, COUNT(*) Cnt FROM dbo.VPeople v GROUP BY v.PersonId, v.Name HAVING COUNT(*) > 1";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        result.ConvertedSql.ShouldNotContain("(SELECT");
+        result.ConvertedSql.ShouldContain("p.PersonId");
+        result.ConvertedSql.ShouldContain("p.Name");
+    }
+
+    [Test]
+    public void MultiTableInnerQuery_UnqualifiedRefs_NotFlattened()
+    {
+        // Multi-table inner query with unqualified column reference — should NOT flatten
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VJoined"),
+            "CREATE VIEW dbo.VJoined AS SELECT a.Id, b.Name FROM dbo.A a INNER JOIN dbo.B b ON a.Id = b.AId WHERE Active = 1");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id, v.Name FROM dbo.VJoined v";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        // Should NOT be flattened — unqualified 'Active' in multi-table context
+        inliner.TotalDerivedTablesFlattened.ShouldBe(0);
+    }
 }

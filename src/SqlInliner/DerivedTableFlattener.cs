@@ -165,6 +165,21 @@ internal sealed class DerivedTableFlattener
         if (HasReferencedComplexExpressions(outerQuery, derivedAlias, columnMap))
             return false;
 
+        // Qualify unqualified column references in the inner query to prevent ambiguity
+        // after promotion to the outer scope (where more tables are in play)
+        if (innerTableRefs.Count == 1)
+        {
+            // Single-table: all unqualified refs must belong to this table — qualify them
+            var tableAlias = innerTableRefs[0].Alias?.Value ?? innerTableRefs[0].SchemaObject.BaseIdentifier.Value;
+            QualifyUnqualifiedColumnReferences(innerQuery, tableAlias);
+        }
+        else
+        {
+            // Multi-table: we can't resolve which table unqualified refs belong to — bail out
+            if (HasUnqualifiedColumnReferences(innerQuery))
+                return false;
+        }
+
         // Alias collision detection and resolution for all inner tables
         foreach (var innerTableRef in innerTableRefs)
         {
@@ -323,6 +338,27 @@ internal sealed class DerivedTableFlattener
     }
 
     /// <summary>
+    /// Qualifies all single-part (unqualified) column references in the inner query by
+    /// prepending the given table alias. Prevents ambiguity when the inner query's tables
+    /// are promoted into an outer scope with additional tables.
+    /// </summary>
+    private static void QualifyUnqualifiedColumnReferences(QuerySpecification innerQuery, string tableAlias)
+    {
+        var qualifier = new UnqualifiedColumnQualifier(tableAlias);
+        innerQuery.Accept(qualifier);
+    }
+
+    /// <summary>
+    /// Returns true if the inner query contains any single-part (unqualified) column references.
+    /// </summary>
+    private static bool HasUnqualifiedColumnReferences(QuerySpecification innerQuery)
+    {
+        var checker = new UnqualifiedColumnChecker();
+        innerQuery.Accept(checker);
+        return checker.Found;
+    }
+
+    /// <summary>
     /// Renames all column references within a fragment that use the old alias to the new alias.
     /// </summary>
     private static void RenameAliasInFragment(TSqlFragment fragment, string oldAlias, string newAlias)
@@ -338,27 +374,17 @@ internal sealed class DerivedTableFlattener
     private static void RewriteOuterColumnReferences(QuerySpecification outerQuery,
         string derivedAlias, Dictionary<string, ScalarExpression> columnMap)
     {
-        // We need to rewrite references in:
-        // 1. SELECT elements
-        // 2. WHERE clause
-        // 3. JOIN conditions (in the FROM/JOIN tree)
-        // 4. ORDER BY (if present)
-
-        // Collect outer-scope column references only (does not descend into QueryDerivedTable nodes)
+        // Collect outer-scope column references from all clauses
+        // (does not descend into QueryDerivedTable nodes)
         var collector = new OuterScopeColumnReferenceCollector();
 
-        // Visit SELECT elements
         foreach (var element in outerQuery.SelectElements)
             element.Accept(collector);
-
-        // Visit WHERE
         outerQuery.WhereClause?.Accept(collector);
-
-        // Visit FROM (for JOIN conditions — stops at QueryDerivedTable boundaries)
         outerQuery.FromClause?.Accept(collector);
-
-        // Visit ORDER BY
         outerQuery.OrderByClause?.Accept(collector);
+        outerQuery.GroupByClause?.Accept(collector);
+        outerQuery.HavingClause?.Accept(collector);
 
         foreach (var colRef in collector.References)
         {
@@ -505,6 +531,49 @@ internal sealed class DerivedTableFlattener
                 string.Equals(mpi.Identifiers[0].Value, oldAlias, StringComparison.OrdinalIgnoreCase))
             {
                 mpi.Identifiers[0].Value = newAlias;
+            }
+
+            base.ExplicitVisit(node);
+        }
+    }
+
+    /// <summary>
+    /// Visitor that qualifies single-part column references by prepending a table alias.
+    /// </summary>
+    private sealed class UnqualifiedColumnQualifier : TSqlFragmentVisitor
+    {
+        private readonly string tableAlias;
+
+        public UnqualifiedColumnQualifier(string tableAlias)
+        {
+            this.tableAlias = tableAlias;
+        }
+
+        public override void ExplicitVisit(ColumnReferenceExpression node)
+        {
+            if (node.ColumnType == ColumnType.Regular &&
+                node.MultiPartIdentifier is { Identifiers.Count: 1 })
+            {
+                node.MultiPartIdentifier.Identifiers.Insert(0, new Identifier { Value = tableAlias });
+            }
+
+            base.ExplicitVisit(node);
+        }
+    }
+
+    /// <summary>
+    /// Visitor that checks if any single-part (unqualified) column references exist.
+    /// </summary>
+    private sealed class UnqualifiedColumnChecker : TSqlFragmentVisitor
+    {
+        public bool Found { get; private set; }
+
+        public override void ExplicitVisit(ColumnReferenceExpression node)
+        {
+            if (node.ColumnType == ColumnType.Regular &&
+                node.MultiPartIdentifier is { Identifiers.Count: 1 })
+            {
+                Found = true;
             }
 
             base.ExplicitVisit(node);
