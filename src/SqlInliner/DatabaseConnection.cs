@@ -93,6 +93,28 @@ public sealed class DatabaseConnection
         return view;
     }
 
+    /// <summary>
+    /// Executes a scalar query and returns the result.
+    /// </summary>
+    public T ExecuteScalar<T>(string sql)
+    {
+        if (Connection == null)
+            throw new InvalidOperationException("No database connection available.");
+
+        return Connection.ExecuteScalar<T>(sql);
+    }
+
+    /// <summary>
+    /// Executes a non-query SQL statement and returns the number of affected rows.
+    /// </summary>
+    public int ExecuteNonQuery(string sql)
+    {
+        if (Connection == null)
+            throw new InvalidOperationException("No database connection available.");
+
+        return Connection.Execute(sql);
+    }
+
     // ReSharper disable once ClassNeverInstantiated.Local
     private sealed class ObjectIdentifier
     {

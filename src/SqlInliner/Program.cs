@@ -1,6 +1,7 @@
 #if !RELEASELIBRARY
 
 using Microsoft.Data.SqlClient;
+using SqlInliner.Optimize;
 using System;
 using System.CommandLine;
 using System.IO;
@@ -52,6 +53,8 @@ internal static class Program
                 outputPathOption,
                 logPathOption,
             };
+
+        rootCommand.Add(OptimizeCommand.Create());
 
         rootCommand.SetAction(parseResult =>
         {
