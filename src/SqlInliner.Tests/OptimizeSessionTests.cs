@@ -173,6 +173,40 @@ public class OptimizeSessionTests
     }
 
     [Test]
+    public void SessionUsesConfigOptions()
+    {
+        var connection = new DatabaseConnection();
+        connection.AddViewDefinition(
+            DatabaseConnection.ToObjectName("dbo", "VInner"),
+            "CREATE VIEW dbo.VInner AS SELECT p.Id, p.Name FROM dbo.People p");
+        connection.AddViewDefinition(
+            DatabaseConnection.ToObjectName("dbo", "VOuter"),
+            "CREATE VIEW dbo.VOuter AS SELECT i.Id, i.Name FROM dbo.VInner i");
+
+        var wizard = new MockWizard();
+        wizard.QueueConfirm(
+            true,   // backup confirmation
+            false,  // don't open editor
+            false   // don't deploy
+        );
+        wizard.QueueChoose(0); // continue to summary
+
+        var configOptions = new InlinerOptions
+        {
+            StripUnusedColumns = true,
+            StripUnusedJoins = true,
+            FlattenDerivedTables = true,
+        };
+
+        var session = new OptimizeSession(connection, wizard, System.IO.Path.GetTempPath(), configOptions);
+        session.Run("dbo.VOuter");
+
+        // Options display should reflect config values
+        wizard.InfoMessages.ShouldContain(m => m.Contains("StripUnusedJoins=True"));
+        wizard.InfoMessages.ShouldContain(m => m.Contains("FlattenDerivedTables=True"));
+    }
+
+    [Test]
     public void SessionReportsNoNestedViews()
     {
         var connection = new DatabaseConnection();

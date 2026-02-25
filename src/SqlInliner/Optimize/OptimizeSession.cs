@@ -16,6 +16,7 @@ public sealed class OptimizeSession
     private readonly IConsoleWizard wizard;
     private readonly QueryRunner queryRunner;
     private readonly string baseDirectory;
+    private readonly InlinerOptions? configOptions;
 
     private string schema = null!;
     private string viewName = null!;
@@ -28,12 +29,13 @@ public sealed class OptimizeSession
     private string? lastFilePath;
     private bool inlinedViewDeployed;
 
-    public OptimizeSession(DatabaseConnection connection, IConsoleWizard wizard, string baseDirectory)
+    public OptimizeSession(DatabaseConnection connection, IConsoleWizard wizard, string baseDirectory, InlinerOptions? configOptions = null)
     {
         this.connection = connection;
         this.wizard = wizard;
         queryRunner = new QueryRunner(connection);
         this.baseDirectory = baseDirectory;
+        this.configOptions = configOptions;
     }
 
     /// <summary>
@@ -48,12 +50,22 @@ public sealed class OptimizeSession
         StepSelectView(viewNameArg);
 
         // Step 3-7: Inline → Review → Deploy → Validate → Iterate loop
-        currentOptions = new InlinerOptions
-        {
-            StripUnusedColumns = true,
-            StripUnusedJoins = false,
-            AggressiveJoinStripping = false,
-        };
+        // Use config options if provided, otherwise use defaults
+        currentOptions = configOptions != null
+            ? new InlinerOptions
+            {
+                StripUnusedColumns = configOptions.StripUnusedColumns,
+                StripUnusedJoins = configOptions.StripUnusedJoins,
+                AggressiveJoinStripping = configOptions.AggressiveJoinStripping,
+                FlattenDerivedTables = configOptions.FlattenDerivedTables,
+            }
+            : new InlinerOptions
+            {
+                StripUnusedColumns = true,
+                StripUnusedJoins = false,
+                AggressiveJoinStripping = false,
+                FlattenDerivedTables = false,
+            };
 
         // Check for existing _Inlined view and restore saved options
         var inlinedObjectName = DatabaseConnection.ToObjectName(schema, inlinedViewName);

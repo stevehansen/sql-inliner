@@ -65,8 +65,21 @@ public static class OptimizeCommand
                 // Register views from config
                 config?.RegisterViews(connection);
 
+                // Build initial options from config (nullable bools → concrete defaults)
+                InlinerOptions? configOptions = null;
+                if (config != null)
+                {
+                    configOptions = new InlinerOptions
+                    {
+                        StripUnusedColumns = config.StripUnusedColumns ?? true,
+                        StripUnusedJoins = config.StripUnusedJoins ?? false,
+                        AggressiveJoinStripping = config.AggressiveJoinStripping ?? false,
+                        FlattenDerivedTables = config.FlattenDerivedTables ?? false,
+                    };
+                }
+
                 var wizard = new ConsoleWizard();
-                var session = new OptimizeSession(connection, wizard, Environment.CurrentDirectory);
+                var session = new OptimizeSession(connection, wizard, Environment.CurrentDirectory, configOptions);
                 session.Run(viewName);
             }
             finally
