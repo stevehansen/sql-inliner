@@ -239,6 +239,7 @@ using SqlInliner;
 
 // Option 1: Use a live database connection
 using var sqlConnection = new SqlConnection("Server=.;Database=Test;Integrated Security=true");
+sqlConnection.Open();
 var connection = new DatabaseConnection(sqlConnection);
 var viewSql = connection.GetViewDefinition("dbo.VHeavy");
 
