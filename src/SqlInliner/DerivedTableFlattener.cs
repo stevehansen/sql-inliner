@@ -123,6 +123,27 @@ internal sealed class DerivedTableFlattener
                 return (null, totalFlattened);
             }
 
+            case UnqualifiedJoin unqualifiedJoin:
+            {
+                // CROSS APPLY / OUTER APPLY — recurse into both subtrees so that derived
+                // tables nested inside (e.g., INNER JOINs before an OUTER APPLY) get processed.
+                // UnqualifiedJoin has no SearchCondition, so parentJoin stays null for direct
+                // children; their inner WHERE (if any) will go to the outer WHERE clause.
+                var totalFlattened = 0;
+
+                var firstResult = TryFlattenTableReference(outerQuery, unqualifiedJoin.FirstTableReference, outerAliases);
+                if (firstResult.Replacement != null)
+                    unqualifiedJoin.FirstTableReference = firstResult.Replacement;
+                totalFlattened += firstResult.FlattenedCount;
+
+                var secondResult = TryFlattenTableReference(outerQuery, unqualifiedJoin.SecondTableReference, outerAliases);
+                if (secondResult.Replacement != null)
+                    unqualifiedJoin.SecondTableReference = secondResult.Replacement;
+                totalFlattened += secondResult.FlattenedCount;
+
+                return (null, totalFlattened);
+            }
+
             default:
                 return (null, 0);
         }
@@ -508,6 +529,10 @@ internal sealed class DerivedTableFlattener
             case QualifiedJoin join:
                 CollectAliasesFromTableReference(join.FirstTableReference, aliases);
                 CollectAliasesFromTableReference(join.SecondTableReference, aliases);
+                break;
+            case UnqualifiedJoin unqualifiedJoin:
+                CollectAliasesFromTableReference(unqualifiedJoin.FirstTableReference, aliases);
+                CollectAliasesFromTableReference(unqualifiedJoin.SecondTableReference, aliases);
                 break;
         }
     }

@@ -1164,4 +1164,31 @@ public class FlattenDerivedTableTests
         result.ConvertedSql.ShouldContain("WHERE");
         result.ConvertedSql.ShouldContain("p.Active = 1");
     }
+
+    [Test]
+    public void DerivedTablesInsideOuterApply_StillFlattened()
+    {
+        // OUTER APPLY (UnqualifiedJoin) should not block flattening of derived tables
+        // in its subtrees — e.g., INNER JOINs before the OUTER APPLY.
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VStatus"),
+            "CREATE VIEW dbo.VStatus AS SELECT c.Id, c.Code FROM dbo.Codes c WHERE c.CodeType = 'STATUS'");
+
+        // Build: Things INNER JOIN VStatus ON ... OUTER APPLY (correlated subquery)
+        const string viewSql = @"CREATE VIEW dbo.VTest AS
+            SELECT t.Id, v.Code, sub.Val
+            FROM dbo.Things t
+            INNER JOIN dbo.VStatus v ON t.StatusId = v.Id
+            OUTER APPLY (SELECT TOP 1 x.Val FROM dbo.Extras x WHERE x.ThingId = t.Id) sub";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        // VStatus should be flattened despite the OUTER APPLY in the tree
+        result.ConvertedSql.ShouldNotContain("(CodeType");
+        inliner.TotalDerivedTablesFlattened.ShouldBeGreaterThanOrEqualTo(1);
+    }
 }
