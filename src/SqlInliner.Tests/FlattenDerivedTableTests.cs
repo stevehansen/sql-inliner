@@ -366,7 +366,7 @@ public class FlattenDerivedTableTests
     }
 
     [Test]
-    public void MultipleFromTables_InnerJoins_NotFlattened()
+    public void InnerJoin_DerivedTableFlattened()
     {
         connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VJoined"),
             "CREATE VIEW dbo.VJoined AS SELECT a.Id, b.Name FROM dbo.A a INNER JOIN dbo.B b ON a.Id = b.AId");
@@ -380,8 +380,10 @@ public class FlattenDerivedTableTests
         result.ShouldNotBeNull();
         AssertValidSql(result.ConvertedSql);
 
-        // Phase 1 does not handle inner JOINs
-        inliner.TotalDerivedTablesFlattened.ShouldBe(0);
+        result.ConvertedSql.ShouldNotContain("(SELECT");
+        result.ConvertedSql.ShouldContain("dbo.A");
+        result.ConvertedSql.ShouldContain("dbo.B");
+        inliner.TotalDerivedTablesFlattened.ShouldBe(1);
     }
 
     [Test]
@@ -688,6 +690,187 @@ public class FlattenDerivedTableTests
             "CREATE VIEW dbo.VIntersect AS SELECT t.Id FROM dbo.Table1 t INTERSECT SELECT t.Id FROM dbo.Table2 t");
 
         const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id FROM dbo.VIntersect v";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        inliner.TotalDerivedTablesFlattened.ShouldBe(0);
+    }
+
+    // ========================================================================
+    // Phase 2: Inner JOINs (multi-table derived tables)
+    // ========================================================================
+
+    [Test]
+    public void InnerJoinWithWhere_WhereClauseMerged()
+    {
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VJoined"),
+            "CREATE VIEW dbo.VJoined AS SELECT a.Id, b.Name FROM dbo.A a INNER JOIN dbo.B b ON a.Id = b.AId WHERE a.Active = 1");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id, v.Name FROM dbo.VJoined v WHERE v.Id > 10";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        result.ConvertedSql.ShouldNotContain("(SELECT");
+        result.ConvertedSql.ShouldContain("a.Active = 1");
+        result.ConvertedSql.ShouldContain("a.Id > 10");
+        result.ConvertedSql.ShouldContain("AND");
+    }
+
+    [Test]
+    public void InnerJoin_AliasCollisionWithOuter()
+    {
+        // Inner view uses aliases 'a' and 'b', outer query already has table 'a'
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VJoined"),
+            "CREATE VIEW dbo.VJoined AS SELECT a.Id, b.Name FROM dbo.X a INNER JOIN dbo.Y b ON a.Id = b.XId");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id, v.Name, a.Extra FROM dbo.VJoined v INNER JOIN dbo.Z a ON a.VId = v.Id";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        result.ConvertedSql.ShouldNotContain("(SELECT");
+        // Inner alias 'a' should be renamed to 'a1' to avoid conflict with outer 'a'
+        result.ConvertedSql.ShouldContain("a1");
+        result.ConvertedSql.ShouldContain("dbo.X");
+        result.ConvertedSql.ShouldContain("dbo.Y");
+        inliner.TotalDerivedTablesFlattened.ShouldBe(1);
+    }
+
+    [Test]
+    public void MultiWayInnerJoin_Flattened()
+    {
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "V3Way"),
+            "CREATE VIEW dbo.V3Way AS SELECT a.Id, b.Name, c.Code FROM dbo.A a INNER JOIN dbo.B b ON a.Id = b.AId INNER JOIN dbo.C c ON a.Id = c.AId");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id, v.Name, v.Code FROM dbo.V3Way v";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        result.ConvertedSql.ShouldNotContain("(SELECT");
+        result.ConvertedSql.ShouldContain("dbo.A");
+        result.ConvertedSql.ShouldContain("dbo.B");
+        result.ConvertedSql.ShouldContain("dbo.C");
+        inliner.TotalDerivedTablesFlattened.ShouldBe(1);
+    }
+
+    [Test]
+    public void LeftJoinInInnerQuery_Flattened()
+    {
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VLeftJoined"),
+            "CREATE VIEW dbo.VLeftJoined AS SELECT a.Id, a.Name, b.City FROM dbo.People a LEFT JOIN dbo.Addresses b ON b.PersonId = a.Id");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id, v.Name, v.City FROM dbo.VLeftJoined v";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        result.ConvertedSql.ShouldNotContain("(SELECT");
+        result.ConvertedSql.ShouldContain("dbo.People");
+        result.ConvertedSql.ShouldContain("dbo.Addresses");
+        result.ConvertedSql.ShouldContain("LEFT");
+        inliner.TotalDerivedTablesFlattened.ShouldBe(1);
+    }
+
+    [Test]
+    public void InnerJoinAndOuterJoin_BothFlattened()
+    {
+        // Inner view has a JOIN, outer query also joins another view (single-table)
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VJoined"),
+            "CREATE VIEW dbo.VJoined AS SELECT a.Id, b.Name FROM dbo.A a INNER JOIN dbo.B b ON a.Id = b.AId");
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VSingle"),
+            "CREATE VIEW dbo.VSingle AS SELECT c.Id, c.Val FROM dbo.C c");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT j.Id, j.Name, s.Val FROM dbo.VJoined j INNER JOIN dbo.VSingle s ON s.Id = j.Id";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        result.ConvertedSql.ShouldNotContain("(SELECT");
+        result.ConvertedSql.ShouldContain("dbo.A");
+        result.ConvertedSql.ShouldContain("dbo.B");
+        result.ConvertedSql.ShouldContain("dbo.C");
+        inliner.TotalDerivedTablesFlattened.ShouldBe(2);
+    }
+
+    [Test]
+    public void InnerJoin_MultipleAliasCollisions()
+    {
+        // Inner view uses 't' and 'u', outer has both 't' and 'u' already
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VJoined"),
+            "CREATE VIEW dbo.VJoined AS SELECT t.Id, u.Name FROM dbo.X t INNER JOIN dbo.Y u ON t.Id = u.XId");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id, v.Name, t.Val, u.Code FROM dbo.VJoined v INNER JOIN dbo.Other1 t ON t.Id = v.Id INNER JOIN dbo.Other2 u ON u.Id = v.Id";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        result.ConvertedSql.ShouldNotContain("(SELECT");
+        // Both inner aliases should be renamed
+        result.ConvertedSql.ShouldContain("t1");
+        result.ConvertedSql.ShouldContain("u1");
+        result.ConvertedSql.ShouldContain("dbo.X");
+        result.ConvertedSql.ShouldContain("dbo.Y");
+        inliner.TotalDerivedTablesFlattened.ShouldBe(1);
+    }
+
+    [Test]
+    public void InnerJoin_ComplexExpressionReferenced_NotFlattened()
+    {
+        // Inner view has a JOIN but also a complex expression that the outer query references
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VJoined"),
+            "CREATE VIEW dbo.VJoined AS SELECT a.Id, CASE WHEN b.Active = 1 THEN 'Yes' ELSE 'No' END ActiveLabel FROM dbo.A a INNER JOIN dbo.B b ON a.Id = b.AId");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id, v.ActiveLabel FROM dbo.VJoined v";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        // Complex expression referenced by outer — should not flatten
+        inliner.TotalDerivedTablesFlattened.ShouldBe(0);
+    }
+
+    [Test]
+    public void InnerJoin_GroupBy_NotFlattened()
+    {
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VGroupedJoin"),
+            "CREATE VIEW dbo.VGroupedJoin AS SELECT a.Category, COUNT(b.Id) Cnt FROM dbo.A a INNER JOIN dbo.B b ON a.Id = b.AId GROUP BY a.Category");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Category, v.Cnt FROM dbo.VGroupedJoin v";
 
         var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
         inliner.Errors.Count.ShouldBe(0);

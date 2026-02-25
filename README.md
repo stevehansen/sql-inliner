@@ -90,6 +90,7 @@ sqlinliner [options]
 | `--strip-unused-columns` | `-suc` | bool | `true` | Remove columns from nested views that the outer view does not reference |
 | `--strip-unused-joins` | `-suj` | bool | `false` | Remove joins from nested views whose tables contribute no columns to the result |
 | `--aggressive-join-stripping` | — | bool | `false` | Exclude join-condition column references from the usage count (can change results for INNER JOINs — see below) |
+| `--flatten-derived-tables` | `-fdt` | bool | `false` | Flatten derived tables (subqueries) produced by inlining into the outer query (experimental — see below) |
 | `--generate-create-or-alter` | — | bool | `true` | Wrap the output in a `CREATE OR ALTER VIEW` statement |
 | `--output-path` | `-op` | path | — | Write the resulting SQL to a file instead of the console |
 | `--log-path` | `-lp` | path | — | Write warnings, errors, and timing info to a file |
@@ -110,6 +111,7 @@ Instead of passing all options on the command line, you can create a `sqlinliner
     "stripUnusedColumns": true,
     "stripUnusedJoins": true,
     "aggressiveJoinStripping": false,
+    "flattenDerivedTables": false,
     "generateCreateOrAlter": true,
     "views": {
         "dbo.VPeople": "VPeople.sql",
@@ -263,6 +265,53 @@ When `--aggressive-join-stripping` is enabled, column references that appear *on
 
 **Use with care**: for `INNER JOIN`s, the `ON` clause can act as a filter. Removing such a join may change the result set if rows exist that don't match the condition.
 
+### Derived table flattening (experimental)
+
+Disabled by default; enable with `--flatten-derived-tables`. After inlining, each nested view reference becomes a derived table (subquery in the `FROM` clause). When derived table flattening is enabled, the tool removes these subquery wrappers and promotes the inner tables directly into the outer query, producing a single flat `SELECT` with no nesting.
+
+**Example:**
+
+```sql
+-- After inlining (default): derived table wrapper remains
+SELECT [v].[Id], [v].[Name]
+FROM (
+    SELECT [p].[Id], [p].[Name]
+    FROM [dbo].[People] [p]
+    WHERE [p].[Active] = 1
+) [v]
+WHERE [v].[Id] > 10
+
+-- With --flatten-derived-tables: fully flat query
+SELECT [p].[Id], [p].[Name]
+FROM [dbo].[People] [p]
+WHERE ([p].[Id] > 10) AND ([p].[Active] = 1)
+```
+
+Inner JOINs within the subquery are also promoted:
+
+```sql
+-- After inlining: nested JOIN inside derived table
+SELECT [v].[Id], [v].[Name]
+FROM (
+    SELECT [a].[Id], [b].[Name]
+    FROM [dbo].[A] [a] INNER JOIN [dbo].[B] [b] ON [a].[Id] = [b].[AId]
+) [v]
+
+-- With --flatten-derived-tables: JOINs promoted to outer query
+SELECT [a].[Id], [b].[Name]
+FROM [dbo].[A] [a] INNER JOIN [dbo].[B] [b] ON [a].[Id] = [b].[AId]
+```
+
+A derived table is eligible for flattening when:
+
+- The inner query is a simple `SELECT` (not `UNION`/`EXCEPT`/`INTERSECT`)
+- No `GROUP BY`, `HAVING`, `TOP`, or `DISTINCT`
+- No `SELECT *`
+- All columns referenced by the outer query are simple column references (not expressions like `CASE` or function calls)
+- All tables in the inner `FROM` clause are named tables (no nested derived tables)
+
+The tool automatically detects and resolves alias collisions when the inner table aliases conflict with tables already in the outer query.
+
 ### Join hints
 
 Join hints are SQL comments placed on or near a `JOIN` clause that tell sql-inliner about the join's cardinality. They enable safe join removal that would otherwise be skipped.
@@ -323,7 +372,7 @@ The generated SQL includes a metadata comment followed by the inlined view:
 [dbo].[VInner2]
 [dbo].[VInner3]
 
--- Removed: 12 select columns and 4 joins
+-- Removed: 12 select columns and 4 joins and flattened 3 derived tables
 
 -- Warnings (0):
 
@@ -399,6 +448,7 @@ The `DatabaseViewInliner` exposes two ways to get the SQL:
 | `StripUnusedColumns` | `bool` | `true` | Remove unused columns from nested views |
 | `StripUnusedJoins` | `bool` | `false` | Remove unused joins from nested views |
 | `AggressiveJoinStripping` | `bool` | `false` | Exclude join-condition references from usage count |
+| `FlattenDerivedTables` | `bool` | `false` | Flatten derived tables (subqueries) into the outer query |
 
 Use `InlinerOptions.Recommended()` for the suggested defaults (`StripUnusedJoins = true`, everything else at default).
 

@@ -6,9 +6,9 @@ using Microsoft.SqlServer.TransactSql.ScriptDom;
 namespace SqlInliner;
 
 /// <summary>
-/// Post-processing step that flattens simple derived tables (subqueries) produced by inlining
-/// into the outer query. Phase 1 handles single-table QuerySpecification with no GROUP BY,
-/// HAVING, TOP, DISTINCT, or UNION.
+/// Post-processing step that flattens derived tables (subqueries) produced by inlining
+/// into the outer query. Handles QuerySpecification subqueries with no GROUP BY,
+/// HAVING, TOP, DISTINCT, or UNION — including single-table and multi-table (JOIN) cases.
 /// </summary>
 internal sealed class DerivedTableFlattener
 {
@@ -123,10 +123,11 @@ internal sealed class DerivedTableFlattener
 
     /// <summary>
     /// Attempts to flatten a single QueryDerivedTable into the outer query.
-    /// Returns true if successful, with the replacement NamedTableReference in <paramref name="replacement"/>.
+    /// Returns true if successful, with the replacement TableReference in <paramref name="replacement"/>.
+    /// Handles both single-table and multi-table (JOIN) inner queries.
     /// </summary>
     private bool TryFlattenDerivedTable(QuerySpecification outerQuery, QueryDerivedTable derivedTable,
-        HashSet<string> outerAliases, out NamedTableReference? replacement)
+        HashSet<string> outerAliases, out TableReference? replacement)
     {
         replacement = null;
 
@@ -144,10 +145,12 @@ internal sealed class DerivedTableFlattener
         if (!IsEligibleForFlattening(innerQuery))
             return false;
 
-        // Must have exactly one NamedTableReference in FROM (no JOINs)
-        var innerTableRef = GetSingleNamedTableReference(innerQuery);
-        if (innerTableRef == null)
+        // Get inner FROM tree — must contain only NamedTableReference leaf nodes (no nested derived tables)
+        var innerFromResult = GetInnerFromTree(innerQuery);
+        if (innerFromResult == null)
             return false;
+
+        var (innerFromTree, innerTableRefs) = innerFromResult.Value;
 
         // No SELECT * allowed
         if (innerQuery.SelectElements.Any(e => e is SelectStarExpression))
@@ -162,34 +165,24 @@ internal sealed class DerivedTableFlattener
         if (HasReferencedComplexExpressions(outerQuery, derivedAlias, columnMap))
             return false;
 
-        // Alias collision detection and resolution
-        var innerAlias = innerTableRef.Alias?.Value ?? innerTableRef.SchemaObject.BaseIdentifier.Value;
-        var resolvedAlias = ResolveAliasCollision(innerAlias, outerAliases, derivedAlias);
-        if (resolvedAlias != innerAlias)
+        // Alias collision detection and resolution for all inner tables
+        foreach (var innerTableRef in innerTableRefs)
         {
-            // Rename all references to the inner alias within the inner query
-            RenameAliasInFragment(innerQuery, innerAlias, resolvedAlias);
-
-            // Update the inner table's alias
-            innerTableRef.Alias ??= new Identifier();
-            innerTableRef.Alias.Value = resolvedAlias;
-
-            // Update column map to reflect renamed alias
-            foreach (var key in columnMap.Keys.ToList())
+            var innerAlias = innerTableRef.Alias?.Value ?? innerTableRef.SchemaObject.BaseIdentifier.Value;
+            var resolvedAlias = ResolveAliasCollision(innerAlias, outerAliases, derivedAlias);
+            if (resolvedAlias != innerAlias)
             {
-                if (columnMap[key] is ColumnReferenceExpression colRef &&
-                    colRef.MultiPartIdentifier.Identifiers.Count > 1 &&
-                    string.Equals(colRef.MultiPartIdentifier.Identifiers[0].Value, innerAlias, StringComparison.OrdinalIgnoreCase))
-                {
-                    // Already renamed in-place by RenameAliasInFragment
-                }
+                // Rename all references to the inner alias within the inner query
+                RenameAliasInFragment(innerQuery, innerAlias, resolvedAlias);
+
+                // Update the inner table's alias
+                innerTableRef.Alias ??= new Identifier();
+                innerTableRef.Alias.Value = resolvedAlias;
             }
 
-            innerAlias = resolvedAlias;
+            // Register the alias in outer scope (column map values are updated in-place by RenameAliasInFragment)
+            outerAliases.Add(resolvedAlias);
         }
-
-        // Register the new alias in outer scope
-        outerAliases.Add(innerAlias);
 
         // Rewrite outer column references: derivedAlias.col -> inner column's identifiers
         RewriteOuterColumnReferences(outerQuery, derivedAlias, columnMap);
@@ -197,13 +190,13 @@ internal sealed class DerivedTableFlattener
         // Merge WHERE clauses
         MergeWhereClause(outerQuery, innerQuery);
 
-        // Return the inner table reference as the replacement
-        replacement = innerTableRef;
+        // Return the inner FROM tree as the replacement
+        replacement = innerFromTree;
         return true;
     }
 
     /// <summary>
-    /// Checks if the inner QuerySpecification is eligible for Phase 1 flattening.
+    /// Checks if the inner QuerySpecification is eligible for flattening.
     /// </summary>
     private static bool IsEligibleForFlattening(QuerySpecification query)
     {
@@ -222,15 +215,40 @@ internal sealed class DerivedTableFlattener
     }
 
     /// <summary>
-    /// Returns the single NamedTableReference from the inner query's FROM clause,
-    /// or null if the FROM has multiple tables or JOINs.
+    /// Extracts the inner FROM tree and all NamedTableReference leaf nodes within it.
+    /// Returns null if the FROM clause has multiple cross-joined entries or contains
+    /// non-NamedTableReference leaf nodes (e.g., nested derived tables).
     /// </summary>
-    private static NamedTableReference? GetSingleNamedTableReference(QuerySpecification query)
+    private static (TableReference FromTree, List<NamedTableReference> TableRefs)? GetInnerFromTree(QuerySpecification query)
     {
         if (query.FromClause.TableReferences.Count != 1)
             return null;
 
-        return query.FromClause.TableReferences[0] as NamedTableReference;
+        var fromTree = query.FromClause.TableReferences[0];
+        var tableRefs = new List<NamedTableReference>();
+
+        if (!CollectNamedTableReferences(fromTree, tableRefs))
+            return null;
+
+        if (tableRefs.Count == 0)
+            return null;
+
+        return (fromTree, tableRefs);
+    }
+
+    private static bool CollectNamedTableReferences(TableReference tableRef, List<NamedTableReference> results)
+    {
+        switch (tableRef)
+        {
+            case NamedTableReference named:
+                results.Add(named);
+                return true;
+            case QualifiedJoin join:
+                return CollectNamedTableReferences(join.FirstTableReference, results) &&
+                       CollectNamedTableReferences(join.SecondTableReference, results);
+            default:
+                return false;
+        }
     }
 
     /// <summary>

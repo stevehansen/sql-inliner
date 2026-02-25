@@ -25,8 +25,8 @@ public sealed class InlinerOptions
 
     /// <summary>
     /// Gets or sets whether derived tables (subqueries) produced by inlining should be flattened into the outer query
-    /// when safe to do so. Phase 1 handles single-table derived tables without GROUP BY, HAVING, TOP, DISTINCT, or UNION.
-    /// Defaults to <c>false</c> (experimental).
+    /// when safe to do so. Handles single-table and multi-table (JOIN) derived tables without GROUP BY, HAVING, TOP,
+    /// DISTINCT, or UNION. Defaults to <c>false</c> (experimental).
     /// </summary>
     public bool FlattenDerivedTables { get; set; }
 

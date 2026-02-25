@@ -41,25 +41,27 @@ The inlining pipeline flows through these core classes:
 
 6. **TableInlineVisitor** (`TSqlFragmentVisitor`) — Performs the actual AST replacement: swaps `NamedTableReference` nodes for `QueryDerivedTable` and removes unused table references from `FromClause` and `QualifiedJoin`.
 
-7. **InlinerResult** — Formats the final output with a metadata comment containing original SQL, referenced views list, and strip statistics.
+7. **DerivedTableFlattener** — Post-processing step that flattens derived tables (subqueries) produced by inlining. Runs after `DatabaseViewInliner.Inline()` when `FlattenDerivedTables` is enabled. Walks the AST to find `QueryDerivedTable` nodes within `QuerySpecification` FROM/JOIN trees and replaces eligible ones with their inner table references. Handles single-table and multi-table (JOIN) inner queries, alias collision resolution, column reference rewriting, and WHERE clause merging. Uses scope-aware visitors (`OuterScopeColumnReferenceCollector`) that stop at derived table boundaries to avoid corrupting inner-scope AST nodes.
+
+8. **InlinerResult** — Formats the final output with a metadata comment containing original SQL, referenced views list, and strip statistics.
 
 ### Optimize subsystem (`Optimize/` directory)
 
 Conditionally compiled (`#if !RELEASELIBRARY`) and excluded from the library build via `<Compile Remove="Optimize\**" />`.
 
-8. **OptimizeCommand** — System.CommandLine subcommand (`optimize`) with `--connection-string` and `--view-name` options. Accepts a shared `configOption` from Program.cs; connection string can come from CLI or config. Registered in `Program.cs` via `rootCommand.Add(OptimizeCommand.Create(configOption))`.
+9. **OptimizeCommand** — System.CommandLine subcommand (`optimize`) with `--connection-string` and `--view-name` options. Accepts a shared `configOption` from Program.cs; connection string can come from CLI or config. Registered in `Program.cs` via `rootCommand.Add(OptimizeCommand.Create(configOption))`.
 
-9. **OptimizeSession** — Orchestrates the 9-step interactive workflow (connect → select → inline → review → deploy → validate → iterate → benchmark → summary). All I/O goes through `IConsoleWizard` for testability.
+10. **OptimizeSession** — Orchestrates the 9-step interactive workflow (connect → select → inline → review → deploy → validate → iterate → benchmark → summary). All I/O goes through `IConsoleWizard` for testability.
 
-10. **ConsoleWizard** / **IConsoleWizard** — Abstraction for interactive console I/O (prompts, colored output, tables). Tests use a `MockWizard` with queued answers.
+11. **ConsoleWizard** / **IConsoleWizard** — Abstraction for interactive console I/O (prompts, colored output, tables). Tests use a `MockWizard` with queued answers.
 
-11. **SessionDirectory** — Manages a session folder (`optimize-{name}-{timestamp}/`), saves iteration files, computes SHA256 hashes for edit detection, and writes a session log.
+12. **SessionDirectory** — Manages a session folder (`optimize-{name}-{timestamp}/`), saves iteration files, computes SHA256 hashes for edit detection, and writes a session log.
 
-12. **QueryRunner** — Executes validation queries (COUNT, EXCEPT) and benchmarks (SET STATISTICS TIME/IO via `SqlConnection.InfoMessage`) with configurable command timeouts.
+13. **QueryRunner** — Executes validation queries (COUNT, EXCEPT) and benchmarks (SET STATISTICS TIME/IO via `SqlConnection.InfoMessage`) with configurable command timeouts.
 
 ### Configuration subsystem
 
-13. **InlinerConfig** — Conditionally compiled (`#if !RELEASELIBRARY`). Deserializes `sqlinliner.json` via `System.Text.Json` (camelCase, comments/trailing commas allowed). Properties are all nullable to distinguish "not set" from defaults. `TryLoad(explicitPath)` checks explicit path then auto-discovers `sqlinliner.json` in CWD. `RegisterViews(connection)` reads `.sql` files (paths relative to config directory) and calls `connection.AddViewDefinition()`.
+14. **InlinerConfig** — Conditionally compiled (`#if !RELEASELIBRARY`). Deserializes `sqlinliner.json` via `System.Text.Json` (camelCase, comments/trailing commas allowed). Properties are all nullable to distinguish "not set" from defaults. `TryLoad(explicitPath)` checks explicit path then auto-discovers `sqlinliner.json` in CWD. `RegisterViews(connection)` reads `.sql` files (paths relative to config directory) and calls `connection.AddViewDefinition()`.
 
 ### Key design decisions
 
@@ -67,6 +69,7 @@ Conditionally compiled (`#if !RELEASELIBRARY`) and excluded from the library bui
 - **Recursive inlining**: `DatabaseViewInliner.Inline()` recurses into each referenced view before replacing it, so deeply nested view chains are fully flattened.
 - **Column stripping**: When `StripUnusedColumns` is enabled, columns are removed by index across all branches of a UNION/EXCEPT/INTERSECT to keep them aligned.
 - **Join stripping**: Views contributing only 0-1 columns are candidates for removal when `StripUnusedJoins` is enabled.
+- **Derived table flattening**: When `FlattenDerivedTables` is enabled, `DerivedTableFlattener` runs as a post-processing step after inlining. It replaces eligible `QueryDerivedTable` nodes with their inner `FROM` tree (single table or JOIN tree), rewrites column references, and merges WHERE clauses. Uses `OuterScopeColumnReferenceCollector` that stops at `QueryDerivedTable` boundaries to prevent corrupting shared AST object references.
 - **`ParametersToIgnore`**: Maps SQL functions (e.g., DATEADD) to parameter indexes that should be excluded from column reference analysis.
 
 ## Testing Patterns
