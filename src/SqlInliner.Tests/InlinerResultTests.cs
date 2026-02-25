@@ -129,9 +129,42 @@ public class InlinerResultTests
     public void Result_KnownViewsIncludesReferencedViews()
     {
         const string viewSql = "CREATE VIEW dbo.VTest AS SELECT p.Id FROM dbo.VPeople p";
-        
+
         var inliner = new DatabaseViewInliner(connection, viewSql, options);
         inliner.Result.ShouldNotBeNull();
         inliner.Result.KnownViews.ShouldContainKey("[dbo].[VPeople]");
+    }
+
+    [Test]
+    public void Result_ContainsOptionsLine()
+    {
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT p.Id FROM dbo.VPeople p";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, options);
+        inliner.Result.ShouldNotBeNull();
+        inliner.Result.Sql.ShouldContain("-- Options:");
+    }
+
+    [Test]
+    public void Result_MetadataCommentContainsMarkersAndOptions()
+    {
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT p.Id FROM dbo.VPeople p";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, options);
+        inliner.Result.ShouldNotBeNull();
+        inliner.Result.MetadataComment.ShouldContain(DatabaseView.BeginOriginal);
+        inliner.Result.MetadataComment.ShouldContain(DatabaseView.EndOriginal);
+        inliner.Result.MetadataComment.ShouldContain("-- Options:");
+        inliner.Result.MetadataComment.ShouldContain("Referenced views");
+    }
+
+    [Test]
+    public void Result_SqlEqualsMetadataCommentPlusConvertedSql()
+    {
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT p.Id FROM dbo.VPeople p";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, options);
+        inliner.Result.ShouldNotBeNull();
+        inliner.Result.Sql.ShouldBe(inliner.Result.MetadataComment + inliner.Result.ConvertedSql + "\n\n");
     }
 }

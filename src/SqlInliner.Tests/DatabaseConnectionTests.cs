@@ -109,9 +109,30 @@ public class DatabaseConnectionTests
     public void ToObjectName_CreatesValidSchemaObjectName()
     {
         var objectName = DatabaseConnection.ToObjectName("myschema", "myview");
-        
+
         objectName.ShouldNotBeNull();
         objectName.SchemaIdentifier.Value.ShouldBe("myschema");
         objectName.BaseIdentifier.Value.ShouldBe("myview");
+    }
+
+    [Test]
+    public void TryGetRawViewDefinition_ReturnsRegisteredDefinition()
+    {
+        var connection = new DatabaseConnection();
+        var viewName = DatabaseConnection.ToObjectName("dbo", "VTest");
+        const string definition = "CREATE VIEW dbo.VTest AS SELECT 1";
+
+        connection.AddViewDefinition(viewName, definition);
+        var raw = connection.TryGetRawViewDefinition(viewName.GetName());
+
+        raw.ShouldBe(definition);
+    }
+
+    [Test]
+    public void TryGetRawViewDefinition_ReturnsNullForUnknownView()
+    {
+        var connection = new DatabaseConnection();
+
+        connection.TryGetRawViewDefinition("[dbo].[VUnknown]").ShouldBeNull();
     }
 }

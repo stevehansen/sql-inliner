@@ -94,6 +94,21 @@ public sealed class DatabaseConnection
     }
 
     /// <summary>
+    /// Returns the raw SQL definition of a view without extracting original SQL from markers.
+    /// Returns <c>null</c> if the view is not found.
+    /// </summary>
+    public string? TryGetRawViewDefinition(string viewName)
+    {
+        if (viewDefinitions.TryGetValue(viewName, out var view))
+            return view;
+
+        if (Connection == null)
+            return null;
+
+        return Connection.Query<string>($"SELECT OBJECT_DEFINITION(object_id('{viewName}'))").FirstOrDefault();
+    }
+
+    /// <summary>
     /// Executes a scalar query and returns the result.
     /// </summary>
     public T ExecuteScalar<T>(string sql)

@@ -86,7 +86,7 @@ public sealed class DatabaseViewInliner
 
         sw.Stop();
 
-        var result = new InlinerResult(this, sw.Elapsed, viewSql, knownViews, formattedSql);
+        var result = new InlinerResult(this, sw.Elapsed, viewSql, knownViews, formattedSql, this.options);
 
         Sql = result.Sql;
         Result = result;

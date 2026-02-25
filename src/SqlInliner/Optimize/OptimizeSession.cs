@@ -54,6 +54,23 @@ public sealed class OptimizeSession
             StripUnusedJoins = false,
             AggressiveJoinStripping = false,
         };
+
+        // Check for existing _Inlined view and restore saved options
+        var inlinedObjectName = DatabaseConnection.ToObjectName(schema, inlinedViewName);
+        if (connection.IsView(inlinedObjectName))
+        {
+            var rawDef = connection.TryGetRawViewDefinition($"[{schema}].[{inlinedViewName}]");
+            if (rawDef != null)
+            {
+                var savedOptions = InlinerOptions.TryParseFromMetadata(rawDef);
+                if (savedOptions != null)
+                {
+                    currentOptions = savedOptions;
+                    wizard.Info($"Loaded options from existing [{schema}].[{inlinedViewName}]:");
+                    wizard.Info($"  {savedOptions.ToMetadataString()}");
+                }
+            }
+        }
         session = new SessionDirectory(viewName, baseDirectory);
 
         wizard.Info($"Session directory: {session.DirectoryPath}");
@@ -197,8 +214,9 @@ public sealed class OptimizeSession
             return;
         }
 
-        // Rename view to _Inlined
-        lastConvertedSql = RenameView(result.ConvertedSql, schema, inlinedViewName);
+        // Rename view to _Inlined, prepend metadata comment
+        var renamedSql = RenameView(result.ConvertedSql, schema, inlinedViewName);
+        lastConvertedSql = result.MetadataComment + renamedSql;
         wizard.Success($"Inlined successfully. Stripped {inliner.TotalSelectColumnsStripped} columns and {inliner.TotalJoinsStripped} joins.");
         wizard.Info($"  Referenced views: {result.KnownViews.Count}");
         wizard.Info($"  Elapsed: {result.Elapsed}");

@@ -140,6 +140,39 @@ public class OptimizeSessionTests
     }
 
     [Test]
+    public void SessionPicksUpSavedOptionsFromExistingInlinedView()
+    {
+        var connection = new DatabaseConnection();
+        connection.AddViewDefinition(
+            DatabaseConnection.ToObjectName("dbo", "VInner"),
+            "CREATE VIEW dbo.VInner AS SELECT p.Id, p.Name FROM dbo.People p");
+        connection.AddViewDefinition(
+            DatabaseConnection.ToObjectName("dbo", "VOuter"),
+            "CREATE VIEW dbo.VOuter AS SELECT i.Id, i.Name FROM dbo.VInner i");
+
+        // Register an existing _Inlined view with metadata containing saved options
+        var metadataSql = "/*\n-- Options: StripUnusedColumns=True, StripUnusedJoins=True, AggressiveJoinStripping=True\n*/\nCREATE OR ALTER VIEW [dbo].[VOuter_Inlined] AS SELECT i.Id FROM dbo.VInner i";
+        connection.AddViewDefinition(
+            DatabaseConnection.ToObjectName("dbo", "VOuter_Inlined"),
+            metadataSql);
+
+        var wizard = new MockWizard();
+        wizard.QueueConfirm(
+            true,   // backup confirmation
+            false,  // don't open editor
+            false   // don't deploy
+        );
+        wizard.QueueChoose(0); // continue to summary
+
+        var session = new OptimizeSession(connection, wizard, System.IO.Path.GetTempPath());
+        session.Run("dbo.VOuter");
+
+        // Should report loaded options
+        wizard.InfoMessages.ShouldContain(m => m.Contains("Loaded options from existing"));
+        wizard.InfoMessages.ShouldContain(m => m.Contains("AggressiveJoinStripping=True"));
+    }
+
+    [Test]
     public void SessionReportsNoNestedViews()
     {
         var connection = new DatabaseConnection();

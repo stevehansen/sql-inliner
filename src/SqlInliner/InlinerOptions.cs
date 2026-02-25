@@ -33,4 +33,59 @@ public sealed class InlinerOptions
             StripUnusedJoins = true,
         };
     }
+
+    /// <summary>
+    /// Serializes the options to a metadata-friendly string.
+    /// </summary>
+    public string ToMetadataString()
+    {
+        return $"StripUnusedColumns={StripUnusedColumns}, StripUnusedJoins={StripUnusedJoins}, AggressiveJoinStripping={AggressiveJoinStripping}";
+    }
+
+    /// <summary>
+    /// Attempts to parse <see cref="InlinerOptions"/> from a SQL string containing a <c>-- Options:</c> metadata line.
+    /// Returns <c>null</c> if the options line is not found.
+    /// </summary>
+    public static InlinerOptions? TryParseFromMetadata(string sql)
+    {
+        const string prefix = "-- Options: ";
+        var startIndex = sql.IndexOf(prefix, System.StringComparison.Ordinal);
+        if (startIndex < 0)
+            return null;
+
+        startIndex += prefix.Length;
+        var endIndex = sql.IndexOf('\n', startIndex);
+        var line = endIndex < 0 ? sql.Substring(startIndex) : sql.Substring(startIndex, endIndex - startIndex);
+        line = line.TrimEnd('\r');
+
+        var options = new InlinerOptions();
+        foreach (var pair in line.Split(','))
+        {
+            var parts = pair.Trim().Split('=');
+            if (parts.Length != 2)
+                continue;
+
+            var key = parts[0].Trim();
+            var value = parts[1].Trim();
+
+            switch (key)
+            {
+                case nameof(StripUnusedColumns):
+                    if (bool.TryParse(value, out var stripCols))
+                        options.StripUnusedColumns = stripCols;
+                    break;
+                case nameof(StripUnusedJoins):
+                    if (bool.TryParse(value, out var stripJoins))
+                        options.StripUnusedJoins = stripJoins;
+                    break;
+                case nameof(AggressiveJoinStripping):
+                    if (bool.TryParse(value, out var aggressive))
+                        options.AggressiveJoinStripping = aggressive;
+                    break;
+                // Unknown keys are silently ignored for forward compatibility
+            }
+        }
+
+        return options;
+    }
 }
