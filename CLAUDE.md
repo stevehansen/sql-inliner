@@ -29,9 +29,9 @@ dotnet run --project src/SqlInliner/SqlInliner.csproj -- -vp "./path/to/view.sql
 
 The inlining pipeline flows through these core classes:
 
-1. **Program.cs** — CLI entry point using System.CommandLine. Conditionally compiled out (`#if !RELEASELIBRARY`) when building as a library.
+1. **Program.cs** — CLI entry point using System.CommandLine. Conditionally compiled out (`#if !RELEASELIBRARY`) when building as a library. Loads `InlinerConfig` from `--config` or auto-discovered `sqlinliner.json`, merges CLI overrides (CLI > config > default).
 
-2. **DatabaseConnection** — Wraps `IDbConnection` (Dapper) to query `sys.views` for non-indexed views. Has a parameterless constructor for testing that accepts mock view definitions via `AddViewDefinition()`.
+2. **DatabaseConnection** — Wraps `IDbConnection` (Dapper) to query `sys.views` for non-indexed views. Has a parameterless constructor for testing/file-only workflows that accepts mock view definitions via `AddViewDefinition()`. `ParseObjectName(string)` parses `"schema.name"` or `"name"` strings into `SchemaObjectName`.
 
 3. **DatabaseView** — Parses SQL with `TSql150Parser`, extracts the AST tree and a `ReferencesVisitor`. Handles `CREATE OR ALTER VIEW` conversion via regex. Embeds original SQL between `BeginOriginal`/`EndOriginal` markers so previously-inlined views can be re-inlined from their original source.
 
@@ -47,7 +47,7 @@ The inlining pipeline flows through these core classes:
 
 Conditionally compiled (`#if !RELEASELIBRARY`) and excluded from the library build via `<Compile Remove="Optimize\**" />`.
 
-8. **OptimizeCommand** — System.CommandLine subcommand (`optimize`) with `--connection-string` and `--view-name` options. Registered in `Program.cs` via `rootCommand.Add(OptimizeCommand.Create())`.
+8. **OptimizeCommand** — System.CommandLine subcommand (`optimize`) with `--connection-string` and `--view-name` options. Accepts a shared `configOption` from Program.cs; connection string can come from CLI or config. Registered in `Program.cs` via `rootCommand.Add(OptimizeCommand.Create(configOption))`.
 
 9. **OptimizeSession** — Orchestrates the 9-step interactive workflow (connect → select → inline → review → deploy → validate → iterate → benchmark → summary). All I/O goes through `IConsoleWizard` for testability.
 
@@ -56,6 +56,10 @@ Conditionally compiled (`#if !RELEASELIBRARY`) and excluded from the library bui
 11. **SessionDirectory** — Manages a session folder (`optimize-{name}-{timestamp}/`), saves iteration files, computes SHA256 hashes for edit detection, and writes a session log.
 
 12. **QueryRunner** — Executes validation queries (COUNT, EXCEPT) and benchmarks (SET STATISTICS TIME/IO via `SqlConnection.InfoMessage`) with configurable command timeouts.
+
+### Configuration subsystem
+
+13. **InlinerConfig** — Conditionally compiled (`#if !RELEASELIBRARY`). Deserializes `sqlinliner.json` via `System.Text.Json` (camelCase, comments/trailing commas allowed). Properties are all nullable to distinguish "not set" from defaults. `TryLoad(explicitPath)` checks explicit path then auto-discovers `sqlinliner.json` in CWD. `RegisterViews(connection)` reads `.sql` files (paths relative to config directory) and calls `connection.AddViewDefinition()`.
 
 ### Key design decisions
 

@@ -83,6 +83,7 @@ sqlinliner [options]
 
 | Option | Alias | Type | Default | Description |
 |---|---|---|---|---|
+| `--config` | `-c` | path | — | Path to a `sqlinliner.json` configuration file (auto-discovers `sqlinliner.json` in current directory) |
 | `--connection-string` | `-cs` | string | — | Connection string to the SQL Server database |
 | `--view-name` | `-vn` | string | — | Fully qualified name of the view to inline (e.g. `dbo.MyView`) |
 | `--view-path` | `-vp` | path | — | Path to a `.sql` file containing a `CREATE VIEW` statement |
@@ -95,7 +96,46 @@ sqlinliner [options]
 
 At least one of `--view-name` or `--view-path` is required. When both are supplied, `--view-path` provides the main view definition while `--view-name` (with `--connection-string`) is used to fetch any nested views referenced inside it from the database.
 
+A connection string is not required when all referenced views are available locally — either via `--view-path` or the `views` mapping in a config file.
+
 The tool writes the inlined SQL to stdout (or to `--output-path`) and always exits with code `0`. Check the `-- Errors` section in the output metadata comment or the `--log-path` file to detect problems.
+
+## Configuration file
+
+Instead of passing all options on the command line, you can create a `sqlinliner.json` file:
+
+```json
+{
+    "connectionString": "Server=.;Database=MyDB;User Id=sa;Password=secret",
+    "stripUnusedColumns": true,
+    "stripUnusedJoins": true,
+    "aggressiveJoinStripping": false,
+    "generateCreateOrAlter": true,
+    "views": {
+        "dbo.VPeople": "VPeople.sql",
+        "dbo.VNestedPeople": "./nested/VNestedPeople.sql"
+    }
+}
+```
+
+All fields are optional. CLI arguments always override config values.
+
+- **Auto-discovery**: If `--config` is not specified, the tool looks for `sqlinliner.json` in the current directory.
+- **View mappings**: The `views` object maps fully qualified view names to `.sql` file paths. Paths are resolved relative to the config file's directory. These views are registered before inlining, so nested views can be resolved from files instead of a database connection.
+- **No connection required**: When all referenced views are provided via the `views` mapping, no `--connection-string` is needed.
+
+### Using a config file
+
+```bash
+# Explicit config path
+sqlinliner -c ./config/sqlinliner.json -vn dbo.VHeavy
+
+# Auto-discover sqlinliner.json in current directory
+sqlinliner -vn dbo.VHeavy
+
+# Config + local file (nested views resolved from config)
+sqlinliner -c sqlinliner.json -vp ./views/VHeavy.sql --strip-unused-joins
+```
 
 ## Examples
 
@@ -185,8 +225,10 @@ sqlinliner optimize \
 
 | Option | Alias | Type | Description |
 |---|---|---|---|
-| `--connection-string` | `-cs` | string | Connection string (required) |
+| `--connection-string` | `-cs` | string | Connection string (required, can come from config file) |
 | `--view-name` | `-vn` | string | Fully qualified view name. If omitted, you will be prompted. |
+
+The `--config` / `-c` option is shared with the root command and also applies here.
 
 ### Session directory
 
