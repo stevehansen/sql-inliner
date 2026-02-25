@@ -150,9 +150,9 @@ public sealed class ReferencesVisitor : TSqlFragmentVisitor
             if (token.TokenType is TSqlTokenType.MultilineComment or TSqlTokenType.SingleLineComment)
             {
                 var text = token.Text;
-                if (text.IndexOf("@join:unique", StringComparison.OrdinalIgnoreCase) >= 0)
+                if (text.IndexOf(JoinHintMarkers.Unique, StringComparison.OrdinalIgnoreCase) >= 0)
                     hints |= JoinHint.Unique;
-                if (text.IndexOf("@join:required", StringComparison.OrdinalIgnoreCase) >= 0)
+                if (text.IndexOf(JoinHintMarkers.Required, StringComparison.OrdinalIgnoreCase) >= 0)
                     hints |= JoinHint.Required;
             }
         }

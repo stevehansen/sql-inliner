@@ -23,6 +23,19 @@ namespace SqlInliner;
 /// </list>
 /// </para>
 /// </remarks>
+public static class JoinHintMarkers
+{
+    /// <summary>
+    /// SQL comment marker indicating the join produces at most one matching row.
+    /// </summary>
+    public const string Unique = "@join:unique";
+
+    /// <summary>
+    /// SQL comment marker indicating every source row has a matching row.
+    /// </summary>
+    public const string Required = "@join:required";
+}
+
 [Flags]
 public enum JoinHint
 {
