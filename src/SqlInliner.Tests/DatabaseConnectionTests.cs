@@ -135,4 +135,49 @@ public class DatabaseConnectionTests
 
         connection.TryGetRawViewDefinition("[dbo].[VUnknown]").ShouldBeNull();
     }
+
+    [Test]
+    public void ParseObjectName_SchemaAndName()
+    {
+        var result = DatabaseConnection.ParseObjectName("dbo.VPeople");
+
+        result.SchemaIdentifier.Value.ShouldBe("dbo");
+        result.BaseIdentifier.Value.ShouldBe("VPeople");
+    }
+
+    [Test]
+    public void ParseObjectName_NameOnly_DefaultsToDbo()
+    {
+        var result = DatabaseConnection.ParseObjectName("VPeople");
+
+        result.SchemaIdentifier.Value.ShouldBe("dbo");
+        result.BaseIdentifier.Value.ShouldBe("VPeople");
+    }
+
+    [Test]
+    public void ParseObjectName_BracketQuoted()
+    {
+        var result = DatabaseConnection.ParseObjectName("[myschema].[MyView]");
+
+        result.SchemaIdentifier.Value.ShouldBe("myschema");
+        result.BaseIdentifier.Value.ShouldBe("MyView");
+    }
+
+    [Test]
+    public void ParseObjectName_MixedBrackets()
+    {
+        var result = DatabaseConnection.ParseObjectName("sales.[VOrders]");
+
+        result.SchemaIdentifier.Value.ShouldBe("sales");
+        result.BaseIdentifier.Value.ShouldBe("VOrders");
+    }
+
+    [Test]
+    public void ParseObjectName_RoundTripsWithGetName()
+    {
+        var parsed = DatabaseConnection.ParseObjectName("dbo.VTest");
+        var manual = DatabaseConnection.ToObjectName("dbo", "VTest");
+
+        parsed.GetName().ShouldBe(manual.GetName());
+    }
 }

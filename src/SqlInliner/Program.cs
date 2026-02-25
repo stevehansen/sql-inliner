@@ -12,6 +12,7 @@ internal static class Program
 {
     private static int Main(string[] args)
     {
+        var configOption = new Option<FileInfo?>("--config", "-c") { Description = "Path to a sqlinliner.json configuration file. Auto-discovers sqlinliner.json in the current directory if not specified", Recursive = true };
         var connectionStringOption = new Option<string>("--connection-string", "-cs") { Description = "Connection string to the SQL Server database" };
         var viewNameOption = new Option<string>("--view-name", "-vn") { Description = "Fully qualified name of the view to inline (e.g. dbo.MyView)" };
         var viewPathOption = new Option<FileInfo>("--view-path", "-vp") { Description = "Path to a .sql file containing a CREATE VIEW statement" };
@@ -32,6 +33,7 @@ internal static class Program
               sqlinliner -cs "Server=.;Database=Test;Integrated Security=true" -vn "dbo.VHeavy" --strip-unused-joins
               sqlinliner -vp "./views/MyView.sql" --strip-unused-joins
               sqlinliner -vp "./views/MyView.sql" --generate-create-or-alter false
+              sqlinliner -c sqlinliner.json -vn dbo.VHeavy
 
             Join hints — annotate JOINs in your SQL to enable safe join removal:
               LEFT JOIN /* @join:unique */ dbo.Address a ON a.PersonId = p.Id
@@ -43,6 +45,7 @@ internal static class Program
 
         var rootCommand = new RootCommand(description)
             {
+                configOption,
                 connectionStringOption,
                 viewNameOption,
                 viewPathOption,
@@ -54,28 +57,57 @@ internal static class Program
                 logPathOption,
             };
 
-        rootCommand.Add(OptimizeCommand.Create());
+        rootCommand.Add(OptimizeCommand.Create(configOption));
 
         rootCommand.SetAction(parseResult =>
         {
+            var configFile = parseResult.GetValue(configOption);
             var connectionString = parseResult.GetValue(connectionStringOption);
             var viewName = parseResult.GetValue(viewNameOption);
             var viewPath = parseResult.GetValue(viewPathOption);
-            var stripUnusedColumns = parseResult.GetValue(stripUnusedColumnsOption);
-            var stripUnusedJoins = parseResult.GetValue(stripUnusedJoinsOption);
-            var aggressiveJoinStripping = parseResult.GetValue(aggressiveJoinStrippingOption);
-            var generateCreateOrAlter = parseResult.GetValue(generateCreateOrAlterOption);
+
+            // Load config file
+            var config = InlinerConfig.TryLoad(configFile?.FullName);
+
+            // Apply config defaults for connection string
+            if (string.IsNullOrEmpty(connectionString))
+                connectionString = config?.ConnectionString;
+
+            // Resolve boolean options: CLI > config > default
+            var stripUnusedColumns = ResolveOption(parseResult, stripUnusedColumnsOption, config?.StripUnusedColumns);
+            var stripUnusedJoins = ResolveOption(parseResult, stripUnusedJoinsOption, config?.StripUnusedJoins);
+            var aggressiveJoinStripping = ResolveOption(parseResult, aggressiveJoinStrippingOption, config?.AggressiveJoinStripping);
+            var generateCreateOrAlter = ResolveOption(parseResult, generateCreateOrAlterOption, config?.GenerateCreateOrAlter);
             var outputPath = parseResult.GetValue(outputPathOption);
             var logPath = parseResult.GetValue(logPathOption);
 
-            var cs = new SqlConnectionStringBuilder(connectionString);
-            if (!cs.ContainsKey(nameof(cs.ApplicationName)))
+            // Check for required view input
+            if (string.IsNullOrEmpty(viewName) && viewPath == null)
             {
-                cs.ApplicationName = ThisAssembly.AppName;
-                connectionString = cs.ToString();
+                Console.Error.WriteLine("Error: At least --view-name or --view-path is required.");
+                Console.Error.WriteLine("Run 'sqlinliner --help' for usage information.");
+                return;
             }
 
-            var connection = new DatabaseConnection(new SqlConnection(connectionString));
+            // Create connection — only requires a SQL connection if a connection string is available
+            DatabaseConnection connection;
+            if (!string.IsNullOrEmpty(connectionString))
+            {
+                var cs = new SqlConnectionStringBuilder(connectionString);
+                if (!cs.ContainsKey(nameof(cs.ApplicationName)))
+                {
+                    cs.ApplicationName = ThisAssembly.AppName;
+                    connectionString = cs.ToString();
+                }
+                connection = new DatabaseConnection(new SqlConnection(connectionString));
+            }
+            else
+            {
+                connection = new DatabaseConnection();
+            }
+
+            // Register views from config
+            config?.RegisterViews(connection);
 
             string viewSql;
             if (!string.IsNullOrEmpty(viewName))
@@ -108,10 +140,29 @@ internal static class Program
                           $"Errors ({inliner.Errors.Count}):\n{string.Join("\n", inliner.Errors)}\n";
                 File.WriteAllText(logPath.FullName, log);
             }
-            //return inliner.Errors.Count > 0 ? -1 : 0;
         });
 
+        if (args.Length == 0)
+            return rootCommand.Parse(["--help"]).Invoke();
+
         return rootCommand.Parse(args).Invoke();
+    }
+
+    /// <summary>
+    /// Resolves a boolean option value with precedence: CLI > config > default.
+    /// </summary>
+    private static bool ResolveOption(ParseResult parseResult, Option<bool> option, bool? configValue)
+    {
+        // If user explicitly provided the option on CLI, use that value
+        if (parseResult.GetResult(option) != null)
+            return parseResult.GetValue(option);
+
+        // Fall back to config value if available
+        if (configValue.HasValue)
+            return configValue.Value;
+
+        // Fall back to option's default value
+        return parseResult.GetValue(option);
     }
 }
 

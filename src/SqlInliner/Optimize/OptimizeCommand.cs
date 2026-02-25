@@ -2,6 +2,7 @@
 
 using System;
 using System.CommandLine;
+using System.IO;
 using Microsoft.Data.SqlClient;
 
 namespace SqlInliner.Optimize;
@@ -11,12 +12,11 @@ namespace SqlInliner.Optimize;
 /// </summary>
 public static class OptimizeCommand
 {
-    public static Command Create()
+    public static Command Create(Option<FileInfo?> configOption)
     {
-        var connectionStringOption = new Option<string>("--connection-string", "-cs")
+        var connectionStringOption = new Option<string?>("--connection-string", "-cs")
         {
-            Description = "Connection string to the SQL Server database (required)",
-            Required = true,
+            Description = "Connection string to the SQL Server database. Can also be provided via config file.",
         };
         var viewNameOption = new Option<string?>("--view-name", "-vn")
         {
@@ -31,8 +31,22 @@ public static class OptimizeCommand
 
         command.SetAction(parseResult =>
         {
-            var connectionString = parseResult.GetValue(connectionStringOption)!;
+            var configFile = parseResult.GetValue(configOption);
+            var connectionString = parseResult.GetValue(connectionStringOption);
             var viewName = parseResult.GetValue(viewNameOption);
+
+            // Load config file
+            var config = InlinerConfig.TryLoad(configFile?.FullName);
+
+            // Apply config defaults for connection string
+            if (string.IsNullOrEmpty(connectionString))
+                connectionString = config?.ConnectionString;
+
+            if (string.IsNullOrEmpty(connectionString))
+            {
+                Console.Error.WriteLine("Error: --connection-string is required (via CLI or config file).");
+                return;
+            }
 
             var csb = new SqlConnectionStringBuilder(connectionString);
             if (!csb.ContainsKey(nameof(csb.ApplicationName)))
@@ -47,6 +61,10 @@ public static class OptimizeCommand
             try
             {
                 var connection = new DatabaseConnection(sqlConnection);
+
+                // Register views from config
+                config?.RegisterViews(connection);
+
                 var wizard = new ConsoleWizard();
                 var session = new OptimizeSession(connection, wizard, Environment.CurrentDirectory);
                 session.Run(viewName);

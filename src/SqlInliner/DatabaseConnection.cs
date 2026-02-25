@@ -148,4 +148,19 @@ public sealed class DatabaseConnection
         objectName.Identifiers.Add(new() { Value = name });
         return objectName;
     }
+
+    /// <summary>
+    /// Parses a string like "schema.name" or "name" into a <see cref="SchemaObjectName"/>.
+    /// Bracket-quoted identifiers (e.g. [dbo].[VName]) are supported. Defaults to "dbo" schema when not specified.
+    /// </summary>
+    public static SchemaObjectName ParseObjectName(string name)
+    {
+        name = name.Replace("[", "").Replace("]", "");
+
+        var dotIndex = name.LastIndexOf('.');
+        if (dotIndex >= 0)
+            return ToObjectName(name.Substring(0, dotIndex), name.Substring(dotIndex + 1));
+
+        return ToObjectName("dbo", name);
+    }
 }
