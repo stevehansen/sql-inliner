@@ -18,19 +18,52 @@ sql-inliner solves this by:
 - **Stripping unused joins** so tables that contribute nothing to the result are removed entirely
 - **Preserving the original SQL** inside the output so you can always restore or re-inline later
 
+### Before and after
+
+Given two nested views where the outer view only uses a subset of columns:
+
+```sql
+-- Inner view: selects many columns and joins several tables
+CREATE VIEW dbo.VPerson AS
+SELECT p.Id, p.Name, p.Email, a.City, a.Street, a.Zip
+FROM dbo.Person p
+LEFT JOIN dbo.Address a ON a.PersonId = p.Id
+
+-- Outer view: only uses Id and Name
+CREATE VIEW dbo.VPersonNames AS
+SELECT v.Id, v.Name
+FROM dbo.VPerson v
+```
+
+After inlining with `--strip-unused-columns --strip-unused-joins`:
+
+```sql
+CREATE OR ALTER VIEW [dbo].[VPersonNames] AS
+SELECT [v].[Id], [v].[Name]
+FROM (
+    SELECT [p].[Id], [p].[Name]
+    FROM [dbo].[Person] [p]
+    -- Address join removed: contributed no columns to the result
+) [v]
+```
+
+The nested view reference is replaced with a subquery, the unused `Email`/`City`/`Street`/`Zip` columns are stripped, and the `Address` join is removed entirely because none of its columns are needed.
+
 > **Always verify the generated code manually before deploying to a production database.**
+
+## Prerequisites
+
+The CLI tool is distributed as a [.NET global tool](https://learn.microsoft.com/dotnet/core/tools/global-tools) and requires the [.NET 8.0 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (or later) to be installed. You can verify your installation by running `dotnet --version`.
 
 ## Installation
 
 ### CLI tool
 
-Install as a [.NET global tool](https://learn.microsoft.com/dotnet/core/tools/):
-
 ```bash
 dotnet tool install --global sqlinliner
 ```
 
-This registers the `sqlinliner` command globally so it can be used from any directory.
+This registers the `sqlinliner` command globally so it can be used from any directory. Run `sqlinliner --help` to see all available options, or `sqlinliner --version` to check the installed version.
 
 ### Library (NuGet)
 
@@ -62,6 +95,8 @@ sqlinliner [options]
 
 At least one of `--view-name` or `--view-path` is required. When both are supplied, `--view-path` provides the main view definition while `--view-name` (with `--connection-string`) is used to fetch any nested views referenced inside it from the database.
 
+The tool writes the inlined SQL to stdout (or to `--output-path`) and always exits with code `0`. Check the `-- Errors` section in the output metadata comment or the `--log-path` file to detect problems.
+
 ## Examples
 
 ### Inline a view from a database
@@ -79,7 +114,7 @@ Fetches the definition of `dbo.VHeavy`, recursively inlines every nested non-ind
 
 ```bash
 sqlinliner \
-  -cs "Server=hostname.domain.net;Database=mydb;User=sa;Password='secret'" \
+  -cs "Server=hostname.domain.net;Database=mydb;User=myuser;Password='secret'" \
   -vn "dbo.SlowView" \
   --strip-unused-joins
 ```
@@ -100,16 +135,16 @@ sqlinliner -vp "./views/MyView.sql" --generate-create-or-alter false
 
 Outputs only the inlined `SELECT` statement — useful when embedding the result inside a larger script or when comparing different versions.
 
-### Keep all joins (only strip columns)
+### Combine a local file with database lookups
 
 ```bash
 sqlinliner \
+  -vp "./views/VHeavy.sql" \
   -cs "Server=.;Database=Test;Integrated Security=true" \
-  -vn "dbo.VHeavy" \
-  --strip-unused-joins false
+  --strip-unused-joins
 ```
 
-Expands nested views and removes unused columns but leaves every join in place. Useful when you want the view flattened but prefer to optimize joins yourself.
+The main view definition comes from `VHeavy.sql`, but any nested views it references (e.g. `dbo.VInner`) are fetched from the database via the connection string. This is useful when iterating on the outer view locally while the inner views live in the database.
 
 ### Write output and logs to files
 
@@ -247,8 +282,6 @@ var inliner = new DatabaseViewInliner(connection, viewSql, InlinerOptions.Recomm
 
 if (inliner.Errors.Count == 0)
 {
-    // inliner.Result.Sql        — full output with metadata comment
-    // inliner.Result.ConvertedSql — just the inlined SELECT statement
     Console.WriteLine(inliner.Result.Sql);
 }
 
@@ -268,8 +301,16 @@ var inliner2 = new DatabaseViewInliner(mockConnection, outerSql, new InlinerOpti
     StripUnusedJoins = true,
 });
 
-Console.WriteLine(inliner2.Sql);
+Console.WriteLine(inliner2.Result.Sql);
 ```
+
+The `DatabaseViewInliner` exposes two ways to get the SQL:
+
+| Property | Returns |
+|---|---|
+| `inliner.Sql` | The inlined SQL only (shorthand, same as `Result.Sql` on success or the original SQL on error) |
+| `inliner.Result.Sql` | The full output including the metadata comment block with original SQL, referenced views, and strip statistics |
+| `inliner.Result.ConvertedSql` | Just the inlined `CREATE VIEW` / `SELECT` statement without the metadata comment |
 
 ### InlinerOptions
 
