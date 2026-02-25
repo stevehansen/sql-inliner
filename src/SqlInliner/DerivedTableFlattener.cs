@@ -78,40 +78,47 @@ internal sealed class DerivedTableFlattener
     }
 
     private (TableReference? Replacement, int FlattenedCount) TryFlattenTableReference(
-        QuerySpecification outerQuery, TableReference tableRef, HashSet<string> outerAliases)
+        QuerySpecification outerQuery, TableReference tableRef, HashSet<string> outerAliases,
+        QualifiedJoin? parentJoin = null, bool isSecondTableRef = false)
     {
         switch (tableRef)
         {
             case QueryDerivedTable derivedTable:
-                if (TryFlattenDerivedTable(outerQuery, derivedTable, outerAliases, out var replacement))
+            {
+                // Skip flattening if we're on the preserved side of an outer join with inner WHERE —
+                // moving the WHERE to the ON clause would change LEFT/RIGHT JOIN semantics
+                if (parentJoin != null && ShouldSkipFlattenForJoinContext(parentJoin, isSecondTableRef, derivedTable))
+                    return (null, 0);
+
+                if (TryFlattenDerivedTable(outerQuery, derivedTable, outerAliases, out var replacement, out var innerWhere))
+                {
+                    if (innerWhere != null)
+                    {
+                        if (parentJoin != null)
+                            MergeIntoJoinCondition(parentJoin, innerWhere);
+                        else
+                            MergeWhereCondition(outerQuery, innerWhere);
+                    }
+
                     return (replacement, 1);
+                }
+
                 return (null, 0);
+            }
 
             case QualifiedJoin join:
             {
                 var totalFlattened = 0;
 
-                var firstResult = TryFlattenTableReference(outerQuery, join.FirstTableReference, outerAliases);
+                var firstResult = TryFlattenTableReference(outerQuery, join.FirstTableReference, outerAliases, join, false);
                 if (firstResult.Replacement != null)
-                {
                     join.FirstTableReference = firstResult.Replacement;
-                    totalFlattened += firstResult.FlattenedCount;
-                }
-                else
-                {
-                    totalFlattened += firstResult.FlattenedCount;
-                }
+                totalFlattened += firstResult.FlattenedCount;
 
-                var secondResult = TryFlattenTableReference(outerQuery, join.SecondTableReference, outerAliases);
+                var secondResult = TryFlattenTableReference(outerQuery, join.SecondTableReference, outerAliases, join, true);
                 if (secondResult.Replacement != null)
-                {
                     join.SecondTableReference = secondResult.Replacement;
-                    totalFlattened += secondResult.FlattenedCount;
-                }
-                else
-                {
-                    totalFlattened += secondResult.FlattenedCount;
-                }
+                totalFlattened += secondResult.FlattenedCount;
 
                 return (null, totalFlattened);
             }
@@ -122,14 +129,47 @@ internal sealed class DerivedTableFlattener
     }
 
     /// <summary>
+    /// Determines if flattening should be skipped because the inner WHERE clause cannot be
+    /// safely placed after flattening. This occurs on the preserved side of an outer join
+    /// (first ref of LEFT, second ref of RIGHT) and for FULL OUTER JOINs.
+    /// </summary>
+    private static bool ShouldSkipFlattenForJoinContext(QualifiedJoin join, bool isSecondTableRef, QueryDerivedTable derivedTable)
+    {
+        if (derivedTable.QueryExpression is not QuerySpecification { WhereClause: not null })
+            return false;
+
+        return join.QualifiedJoinType switch
+        {
+            QualifiedJoinType.LeftOuter => !isSecondTableRef,  // first ref is preserved
+            QualifiedJoinType.RightOuter => isSecondTableRef,  // second ref is preserved
+            QualifiedJoinType.FullOuter => true,               // neither side can be safely flattened
+            _ => false                                         // INNER/CROSS: always safe
+        };
+    }
+
+    /// <summary>
+    /// Merges a boolean condition into a QualifiedJoin's ON clause using AND.
+    /// </summary>
+    private static void MergeIntoJoinCondition(QualifiedJoin join, BooleanExpression condition)
+    {
+        join.SearchCondition = new BooleanBinaryExpression
+        {
+            BinaryExpressionType = BooleanBinaryExpressionType.And,
+            FirstExpression = new BooleanParenthesisExpression { Expression = join.SearchCondition },
+            SecondExpression = new BooleanParenthesisExpression { Expression = condition },
+        };
+    }
+
+    /// <summary>
     /// Attempts to flatten a single QueryDerivedTable into the outer query.
     /// Returns true if successful, with the replacement TableReference in <paramref name="replacement"/>.
     /// Handles both single-table and multi-table (JOIN) inner queries.
     /// </summary>
     private bool TryFlattenDerivedTable(QuerySpecification outerQuery, QueryDerivedTable derivedTable,
-        HashSet<string> outerAliases, out TableReference? replacement)
+        HashSet<string> outerAliases, out TableReference? replacement, out BooleanExpression? innerWhereCondition)
     {
         replacement = null;
+        innerWhereCondition = null;
 
         // Must have an alias
         if (derivedTable.Alias == null)
@@ -202,8 +242,9 @@ internal sealed class DerivedTableFlattener
         // Rewrite outer column references: derivedAlias.col -> inner column's identifiers
         RewriteOuterColumnReferences(outerQuery, derivedAlias, columnMap);
 
-        // Merge WHERE clauses
-        MergeWhereClause(outerQuery, innerQuery);
+        // Return inner WHERE condition for the caller to place appropriately
+        // (into parent JOIN's ON clause, or into the outer WHERE for top-level FROM entries)
+        innerWhereCondition = innerQuery.WhereClause?.SearchCondition;
 
         // Return the inner FROM tree as the replacement
         replacement = innerFromTree;
@@ -411,22 +452,17 @@ internal sealed class DerivedTableFlattener
     }
 
     /// <summary>
-    /// Merges the inner query's WHERE clause into the outer query's WHERE clause using AND.
+    /// Merges a boolean condition into the outer query's WHERE clause using AND.
+    /// Used for top-level FROM entries where there is no parent JOIN to merge into.
     /// </summary>
-    private static void MergeWhereClause(QuerySpecification outerQuery, QuerySpecification innerQuery)
+    private static void MergeWhereCondition(QuerySpecification outerQuery, BooleanExpression condition)
     {
-        if (innerQuery.WhereClause == null)
-            return;
-
-        var innerCondition = innerQuery.WhereClause.SearchCondition;
-
         if (outerQuery.WhereClause == null)
         {
-            outerQuery.WhereClause = new WhereClause { SearchCondition = innerCondition };
+            outerQuery.WhereClause = new WhereClause { SearchCondition = condition };
         }
         else
         {
-            // Wrap both sides in parentheses for precedence safety and AND them together
             outerQuery.WhereClause.SearchCondition = new BooleanBinaryExpression
             {
                 BinaryExpressionType = BooleanBinaryExpressionType.And,
@@ -436,7 +472,7 @@ internal sealed class DerivedTableFlattener
                 },
                 SecondExpression = new BooleanParenthesisExpression
                 {
-                    Expression = innerCondition,
+                    Expression = condition,
                 },
             };
         }

@@ -1038,4 +1038,130 @@ public class FlattenDerivedTableTests
         // Should NOT be flattened — unqualified 'Active' in multi-table context
         inliner.TotalDerivedTablesFlattened.ShouldBe(0);
     }
+
+    // ========================================================================
+    // Regression: inner WHERE must go into JOIN ON clause, not outer WHERE
+    // ========================================================================
+
+    [Test]
+    public void LeftJoinDerivedTable_InnerWhereMergedIntoOnClause()
+    {
+        // When a derived table with a WHERE is on the optional side of a LEFT JOIN,
+        // its WHERE must be merged into the JOIN's ON clause, not the outer WHERE.
+        // Otherwise the LEFT JOIN effectively becomes an INNER JOIN.
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VStatus"),
+            "CREATE VIEW dbo.VStatus AS SELECT c.Id, c.Code FROM dbo.Codes c WHERE c.CodeType = 'STATUS'");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT t.Id, t.Name, v.Code AS Status FROM dbo.Things t LEFT OUTER JOIN dbo.VStatus v ON t.StatusId = v.Id";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        result.ConvertedSql.ShouldNotContain("(SELECT");
+        // The WHERE condition must be in the ON clause, not a top-level WHERE
+        result.ConvertedSql.ShouldNotContain("WHERE");
+        result.ConvertedSql.ShouldContain("c.CodeType = 'STATUS'");
+        // ON clause should contain both the original join condition and the inner WHERE
+        result.ConvertedSql.ShouldContain("t.StatusId = c.Id");
+    }
+
+    [Test]
+    public void InnerJoinDerivedTable_InnerWhereMergedIntoOnClause()
+    {
+        // For INNER JOINs, the WHERE can go to either ON or outer WHERE (equivalent),
+        // but we prefer ON to prevent issues when nested inside outer JOINs.
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VStatus"),
+            "CREATE VIEW dbo.VStatus AS SELECT c.Id, c.Code FROM dbo.Codes c WHERE c.CodeType = 'STATUS'");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT t.Id, t.Name, v.Code AS Status FROM dbo.Things t INNER JOIN dbo.VStatus v ON t.StatusId = v.Id";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        result.ConvertedSql.ShouldNotContain("(SELECT");
+        // The WHERE condition should be in the ON clause
+        result.ConvertedSql.ShouldNotContain("WHERE");
+        result.ConvertedSql.ShouldContain("c.CodeType = 'STATUS'");
+    }
+
+    [Test]
+    public void MultipleLeftJoins_AllInnerWheresMergedIntoRespectiveOnClauses()
+    {
+        // Simulates the VIndienst pattern: multiple LEFT JOINs to simple code-table views
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VStatus"),
+            "CREATE VIEW dbo.VStatus AS SELECT c.Id, c.Code, c.DisplayStatus FROM dbo.Codes c WHERE c.CodeType = 'STATUS'");
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VCarCat"),
+            "CREATE VIEW dbo.VCarCat AS SELECT c.Id, c.Code FROM dbo.Codes c WHERE c.CodeType = 'CARCAT'");
+
+        const string viewSql = @"CREATE VIEW dbo.VTest AS
+            SELECT t.Id, v1.Code AS Status, v1.DisplayStatus, v2.Code AS CarCat
+            FROM dbo.Things t
+            LEFT OUTER JOIN dbo.VStatus v1 ON t.StatusId = v1.Id
+            LEFT OUTER JOIN dbo.VCarCat v2 ON t.CarCatId = v2.Id";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        result.ConvertedSql.ShouldNotContain("(SELECT");
+        inliner.TotalDerivedTablesFlattened.ShouldBe(2);
+        // Inner WHERE conditions should NOT appear in a top-level WHERE clause
+        result.ConvertedSql.ShouldNotContain("WHERE");
+    }
+
+    [Test]
+    public void PreservedSideOfLeftJoin_WithInnerWhere_NotFlattened()
+    {
+        // The first ref (preserved side) of a LEFT JOIN can't have its WHERE safely placed
+        // in the ON clause — it would change semantics. So skip flattening.
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VActive"),
+            "CREATE VIEW dbo.VActive AS SELECT p.Id, p.Name FROM dbo.People p WHERE p.Active = 1");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id, v.Name, t.Code FROM dbo.VActive v LEFT OUTER JOIN dbo.Codes t ON v.Id = t.Id";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        // VActive is on the preserved (first) side of a LEFT JOIN with a WHERE clause —
+        // it should NOT be flattened because moving WHERE to ON would change join behavior
+        inliner.TotalDerivedTablesFlattened.ShouldBe(0);
+    }
+
+    [Test]
+    public void TopLevelDerivedTable_InnerWhereStillGoesToOuterWhere()
+    {
+        // When a derived table is the sole FROM source (no parent JOIN),
+        // its inner WHERE should go into the outer WHERE as before.
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VPeople"),
+            "CREATE VIEW dbo.VPeople AS SELECT p.Id, p.Name FROM dbo.People p WHERE p.Active = 1");
+
+        const string viewSql = "CREATE VIEW dbo.VTest AS SELECT v.Id, v.Name FROM dbo.VPeople v";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        result.ConvertedSql.ShouldNotContain("(SELECT");
+        // Inner WHERE should be in the outer WHERE
+        result.ConvertedSql.ShouldContain("WHERE");
+        result.ConvertedSql.ShouldContain("p.Active = 1");
+    }
 }
