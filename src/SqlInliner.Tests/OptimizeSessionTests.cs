@@ -151,7 +151,7 @@ public class OptimizeSessionTests
             "CREATE VIEW dbo.VOuter AS SELECT i.Id, i.Name FROM dbo.VInner i");
 
         // Register an existing _Inlined view with metadata containing saved options
-        var metadataSql = "/*\n-- Options: StripUnusedColumns=True, StripUnusedJoins=True, AggressiveJoinStripping=True\n*/\nCREATE OR ALTER VIEW [dbo].[VOuter_Inlined] AS SELECT i.Id FROM dbo.VInner i";
+        var metadataSql = "/*\n-- Options: StripUnusedColumns=True, StripUnusedJoins=True, AggressiveJoinStripping=True, FlattenDerivedTables=True\n*/\nCREATE OR ALTER VIEW [dbo].[VOuter_Inlined] AS SELECT i.Id FROM dbo.VInner i";
         connection.AddViewDefinition(
             DatabaseConnection.ToObjectName("dbo", "VOuter_Inlined"),
             metadataSql);

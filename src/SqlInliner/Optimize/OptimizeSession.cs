@@ -182,7 +182,7 @@ public sealed class OptimizeSession
     private void StepInline()
     {
         wizard.Info($"--- Iteration {iteration} ---");
-        wizard.Info($"Options: StripUnusedColumns={currentOptions.StripUnusedColumns}, StripUnusedJoins={currentOptions.StripUnusedJoins}, AggressiveJoinStripping={currentOptions.AggressiveJoinStripping}");
+        wizard.Info($"Options: {currentOptions.ToMetadataString()}");
         wizard.Info("");
 
         var viewSql = connection.GetViewDefinition(fullViewName);
@@ -217,7 +217,7 @@ public sealed class OptimizeSession
         // Rename view to _Inlined, prepend metadata comment
         var renamedSql = RenameView(result.ConvertedSql, schema, inlinedViewName);
         lastConvertedSql = result.MetadataComment + renamedSql;
-        wizard.Success($"Inlined successfully. Stripped {inliner.TotalSelectColumnsStripped} columns and {inliner.TotalJoinsStripped} joins.");
+        wizard.Success($"Inlined successfully. Stripped {inliner.TotalSelectColumnsStripped} columns and {inliner.TotalJoinsStripped} joins, flattened {inliner.TotalDerivedTablesFlattened} derived tables.");
         wizard.Info($"  Referenced views: {result.KnownViews.Count}");
         wizard.Info($"  Elapsed: {result.Elapsed}");
 
@@ -352,6 +352,7 @@ public sealed class OptimizeSession
             "Continue to benchmark/summary",
             "Toggle strip-unused-joins and re-inline",
             "Toggle aggressive-join-stripping and re-inline",
+            "Toggle flatten-derived-tables and re-inline",
             "Re-inline with current options",
         });
 
@@ -368,6 +369,10 @@ public sealed class OptimizeSession
                 wizard.Info($"AggressiveJoinStripping is now {currentOptions.AggressiveJoinStripping}");
                 return true;
             case 3:
+                currentOptions.FlattenDerivedTables = !currentOptions.FlattenDerivedTables;
+                wizard.Info($"FlattenDerivedTables is now {currentOptions.FlattenDerivedTables}");
+                return true;
+            case 4:
                 return true;
             default:
                 return false;
