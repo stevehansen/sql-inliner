@@ -343,7 +343,7 @@ public sealed class ValidateSession
         return new Regex("^" + Regex.Escape(normalized) + "$", RegexOptions.IgnoreCase);
     }
 
-    private static string StripBrackets(string name) => name.Replace("[", "").Replace("]", "");
+    internal static string StripBrackets(string name) => name.Replace("[", "").Replace("]", "");
 
     private static string FormatElapsed(TimeSpan elapsed)
     {

@@ -318,6 +318,73 @@ Total: 500 views in 2m 34s
 
 Status values: `Pass`, `PassWithWarnings`, `Skipped` (no nested views), `InlineError`, `ParseError`, `DeployError`, `ValidationFail`, `Exception`.
 
+## Verify deployed inlined views
+
+The `verify` subcommand auto-detects views that have been replaced with inlined versions (by checking for embedded `BEGIN ORIGINAL SQL VIEW` / `END ORIGINAL SQL VIEW` markers), deploys the embedded original as a temporary view, and runs COUNT + EXCEPT comparisons to verify the deployed inlined view still matches its original.
+
+This is useful when SqlInliner is used as a library to replace views in-place — `verify` confirms the deployed inlined views are still correct.
+
+```bash
+sqlinliner verify \
+  -cs "Server=.;Database=MyDb;Integrated Security=true"
+```
+
+### Options
+
+| Option | Alias | Type | Default | Description |
+|---|---|---|---|---|
+| `--connection-string` | `-cs` | string | — | Connection string (required, can come from config file) |
+| `--filter` | `-f` | string | — | Only process matching views (exact name or `%` wildcard) |
+| `--stop-on-error` | — | bool | `false` | Halt on first failure (timeouts don't halt) |
+| `--timeout` | `-t` | int | `120` | Query timeout in seconds for COUNT and EXCEPT queries |
+
+The `--config` / `-c` option is shared with the root command and also applies here.
+
+### How it works
+
+For each view with markers:
+
+1. Extracts the original SQL from between the markers
+2. Deploys the original as `[schema].[ViewName_Original]`
+3. Runs `COUNT` and `EXCEPT` comparisons between the original and the deployed inlined view
+4. Always drops `_Original` afterward (cleanup)
+
+Views with a `_Inlined` suffix are automatically skipped when the base view also exists (these are companion copies from the `optimize` workflow, not the canonical inlined versions).
+
+### Examples
+
+```bash
+# Verify all inlined views
+sqlinliner verify -cs "Server=.;Database=MyDb;Integrated Security=true"
+
+# With config file
+sqlinliner verify -c sqlinliner.json
+
+# Filter to specific views
+sqlinliner verify -cs "..." --filter "dbo.V%"
+
+# Stop on first failure
+sqlinliner verify -cs "..." --stop-on-error
+
+# Custom timeout (for heavy views)
+sqlinliner verify -cs "..." --timeout 300
+```
+
+### Summary report
+
+```
+=== Verify Summary ===
+Total: 42 views in 1m 15s
+
+  Status              Count
+  ------------------  -----
+  Pass                   38
+  Timeout                 3
+  ValidationFail          1
+```
+
+Status values: `Pass`, `Skipped`, `DeployError`, `ValidationFail`, `Timeout`, `Exception`.
+
 ## Feature details
 
 ### Column stripping

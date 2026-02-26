@@ -61,6 +61,7 @@ internal static class Program
 
         rootCommand.Add(OptimizeCommand.Create(configOption));
         rootCommand.Add(ValidateCommand.Create(configOption));
+        rootCommand.Add(VerifyCommand.Create(configOption));
 
         rootCommand.SetAction(parseResult =>
         {

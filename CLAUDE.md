@@ -69,6 +69,14 @@ Conditionally compiled (`#if !RELEASELIBRARY`) alongside the Optimize subsystem.
 
 17. **ValidateSession** — Batch-validates all views: iterates `connection.Views` alphabetically, inlines each with `DatabaseViewInliner`, tracks per-view `ViewValidateResult` (status, elapsed, strip counts, errors/warnings). Supports `--filter` (exact or SQL LIKE `%` wildcard via regex), `--output-dir` (saves inlined SQL), `--stop-on-error`, and `--deploy` (renames to `_Validate`, runs COUNT + EXCEPT via `QueryRunner`, always drops `_Validate` in finally). Prints progress per view and a summary table at end. Status enum: `Pass`, `PassWithWarnings`, `Skipped`, `InlineError`, `ParseError`, `DeployError`, `ValidationFail`, `Exception`.
 
+### Verify subsystem (`Optimize/` directory)
+
+Conditionally compiled (`#if !RELEASELIBRARY`) alongside the Optimize subsystem.
+
+18. **VerifyCommand** — System.CommandLine subcommand (`verify`) with `--connection-string`, `--filter`, `--stop-on-error`, and `--timeout`. Accepts a shared `configOption` from Program.cs; connection string can come from CLI or config. Registered in `Program.cs` via `rootCommand.Add(VerifyCommand.Create(configOption))`.
+
+19. **VerifySession** — Auto-detects deployed inlined views by checking for `BeginOriginal`/`EndOriginal` markers in raw view definitions. For each candidate: extracts the original SQL from markers, deploys it as `[schema].[{name}_Original]`, runs COUNT + EXCEPT comparisons via `QueryRunner`, always drops `_Original` in finally. Skips `_Inlined` companion views when the base view also exists. Supports `--filter` (reuses `ValidateSession.BuildFilterRegex` and `StripBrackets`), `--stop-on-error` (timeouts don't halt), and `--timeout` (configurable query timeout). Status enum: `Pass`, `Skipped`, `DeployError`, `ValidationFail`, `Timeout`, `Exception`.
+
 ### Configuration subsystem
 
 15. **InlinerConfig** — Conditionally compiled (`#if !RELEASELIBRARY`). Deserializes `sqlinliner.json` via `System.Text.Json` (camelCase, comments/trailing commas allowed). Properties are all nullable to distinguish "not set" from defaults. `TryLoad(explicitPath)` checks explicit path then auto-discovers `sqlinliner.json` in CWD. `RegisterViews(connection)` reads `.sql` files (paths relative to config directory) and calls `connection.AddViewDefinition()`.
