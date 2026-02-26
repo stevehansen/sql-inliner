@@ -267,6 +267,18 @@ When `--aggressive-join-stripping` is enabled, column references that appear *on
 
 **Use with care**: for `INNER JOIN`s, the `ON` clause can act as a filter. Removing such a join may change the result set if rows exist that don't match the condition.
 
+### Nested derived table stripping
+
+When column stripping or join stripping is enabled, a post-processing step automatically strips unused columns and LEFT JOINs *inside* nested derived tables produced by inlining. This handles cases where the first-level inlining produces subqueries that still carry unused columns or unnecessary joins from deeper nesting levels.
+
+The stripper:
+- Iterates until no more stripping occurs (handles cascading effects across nesting levels)
+- Skips derived tables with `SELECT *`, `DISTINCT`, `TOP`, `GROUP BY`, or `HAVING` (same safety rules as first-level stripping)
+- Only strips `LEFT OUTER JOIN`s to other derived tables (inlined views), not to base tables which were already evaluated with join hints
+- Treats single-part column identifiers conservatively (assumes they could reference any table)
+
+No additional CLI flag is needed — this runs automatically when `--strip-unused-columns` or `--strip-unused-joins` is enabled.
+
 ### Derived table flattening (experimental)
 
 Disabled by default; enable with `--flatten-derived-tables`. After inlining, each nested view reference becomes a derived table (subquery in the `FROM` clause). When derived table flattening is enabled, the tool removes these subquery wrappers and promotes the inner tables directly into the outer query, producing a single flat `SELECT` with no nesting.

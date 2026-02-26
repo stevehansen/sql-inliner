@@ -80,6 +80,16 @@ public sealed class DatabaseViewInliner
         // Inline views
         Inline(view);
 
+        // Optionally strip unused columns/joins inside nested derived tables
+        if (this.options.StripUnusedColumns || this.options.StripUnusedJoins)
+        {
+            var stripper = new DerivedTableStripper(this.options);
+            stripper.Strip(tree);
+            TotalSelectColumnsStripped += stripper.TotalColumnsStripped;
+            TotalJoinsStripped += stripper.TotalJoinsStripped;
+            Warnings.AddRange(stripper.Warnings);
+        }
+
         // Optionally flatten derived tables produced by inlining
         if (this.options.FlattenDerivedTables)
         {
