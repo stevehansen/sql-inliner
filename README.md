@@ -241,6 +241,83 @@ Each optimization session creates a directory in the current working directory (
 - `benchmark.html` — self-contained HTML report with performance summary and per-table IO breakdown
 - `session.log` — timestamped log of all actions
 
+## Batch validation
+
+The `validate` subcommand processes all views in a database in a single run, inlining each one and reporting pass/fail. This acts as a regression/smoke test for the inlining engine across your entire view catalog.
+
+```bash
+sqlinliner validate \
+  -cs "Server=.;Database=TestBackup;Integrated Security=true"
+```
+
+### Options
+
+| Option | Alias | Type | Default | Description |
+|---|---|---|---|---|
+| `--connection-string` | `-cs` | string | — | Connection string (required, can come from config file) |
+| `--deploy` | `-d` | bool | `false` | Deploy each inlined view and run COUNT + EXCEPT validation |
+| `--output-dir` | `-o` | path | — | Save inlined SQL files to a directory |
+| `--stop-on-error` | — | bool | `false` | Halt on first failure instead of continuing |
+| `--filter` | `-f` | string | — | Only process matching views (exact name or `%` wildcard) |
+| `--strip-unused-columns` | `-suc` | bool | `true` | Remove unused columns from nested views |
+| `--strip-unused-joins` | `-suj` | bool | `false` | Remove unused joins from nested views |
+| `--aggressive-join-stripping` | — | bool | `false` | Exclude join-condition references from usage count |
+| `--flatten-derived-tables` | `-fdt` | bool | `false` | Flatten derived tables into the outer query |
+
+The `--config` / `-c` option is shared with the root command and also applies here.
+
+### Examples
+
+```bash
+# Basic: inline all views, report pass/fail
+sqlinliner validate -cs "Server=.;Database=MyDb;Integrated Security=true"
+
+# With config file
+sqlinliner validate -c sqlinliner.json
+
+# Deploy and validate correctness (COUNT + EXCEPT)
+sqlinliner validate -cs "..." --deploy
+
+# Save inlined SQL files
+sqlinliner validate -cs "..." --output-dir ./inlined-views/
+
+# Filter to specific views
+sqlinliner validate -cs "..." --filter "dbo.V%"
+
+# Stop on first failure
+sqlinliner validate -cs "..." --stop-on-error
+```
+
+### Deploy mode
+
+When `--deploy` is enabled, for each view that inlines successfully:
+
+1. The inlined view is deployed as `[schema].[ViewName_Validate]`
+2. Row counts are compared between original and inlined views
+3. An EXCEPT comparison (both directions) checks for data differences
+4. The `_Validate` view is always dropped afterward (cleanup)
+
+> **Warning:** Only run `--deploy` against a backup or development database.
+
+### Summary report
+
+At the end of the run, a summary shows the status of all views:
+
+```
+=== Validation Summary ===
+Total: 500 views in 2m 34s
+
+  Status              Count
+  ------------------  -----
+  Pass                  312
+  PassWithWarnings       28
+  Skipped              145
+  InlineError             8
+  ...
+```
+
+Status values: `Pass`, `PassWithWarnings`, `Skipped` (no nested views), `InlineError`, `ParseError`, `DeployError`, `ValidationFail`, `Exception`.
+
 ## Feature details
 
 ### Column stripping

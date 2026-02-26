@@ -60,6 +60,7 @@ internal static class Program
             };
 
         rootCommand.Add(OptimizeCommand.Create(configOption));
+        rootCommand.Add(ValidateCommand.Create(configOption));
 
         rootCommand.SetAction(parseResult =>
         {
@@ -155,7 +156,7 @@ internal static class Program
     /// <summary>
     /// Resolves a boolean option value with precedence: CLI > config > default.
     /// </summary>
-    private static bool ResolveOption(ParseResult parseResult, Option<bool> option, bool? configValue)
+    internal static bool ResolveOption(ParseResult parseResult, Option<bool> option, bool? configValue)
     {
         // If user explicitly provided the option on CLI, use that value
         if (parseResult.GetResult(option) != null)

@@ -61,6 +61,14 @@ Conditionally compiled (`#if !RELEASELIBRARY`) and excluded from the library bui
 
 14. **QueryRunner** — Executes validation queries (COUNT, EXCEPT) and benchmarks (SET STATISTICS TIME/IO/XML via `SqlConnection.InfoMessage`) with configurable command timeouts. Parses per-table IO statistics (`TableIOStats`) and captures actual execution plans as XML. Results are returned in `BenchmarkResult`.
 
+### Validate subsystem (`Optimize/` directory)
+
+Conditionally compiled (`#if !RELEASELIBRARY`) alongside the Optimize subsystem.
+
+16. **ValidateCommand** — System.CommandLine subcommand (`validate`) with `--connection-string`, `--deploy`, `--output-dir`, `--stop-on-error`, `--filter`, and inliner boolean flags. Accepts a shared `configOption` from Program.cs; boolean flags resolved via `Program.ResolveOption` (CLI > config > default). Registered in `Program.cs` via `rootCommand.Add(ValidateCommand.Create(configOption))`.
+
+17. **ValidateSession** — Batch-validates all views: iterates `connection.Views` alphabetically, inlines each with `DatabaseViewInliner`, tracks per-view `ViewValidateResult` (status, elapsed, strip counts, errors/warnings). Supports `--filter` (exact or SQL LIKE `%` wildcard via regex), `--output-dir` (saves inlined SQL), `--stop-on-error`, and `--deploy` (renames to `_Validate`, runs COUNT + EXCEPT via `QueryRunner`, always drops `_Validate` in finally). Prints progress per view and a summary table at end. Status enum: `Pass`, `PassWithWarnings`, `Skipped`, `InlineError`, `ParseError`, `DeployError`, `ValidationFail`, `Exception`.
+
 ### Configuration subsystem
 
 15. **InlinerConfig** — Conditionally compiled (`#if !RELEASELIBRARY`). Deserializes `sqlinliner.json` via `System.Text.Json` (camelCase, comments/trailing commas allowed). Properties are all nullable to distinguish "not set" from defaults. `TryLoad(explicitPath)` checks explicit path then auto-discovers `sqlinliner.json` in CWD. `RegisterViews(connection)` reads `.sql` files (paths relative to config directory) and calls `connection.AddViewDefinition()`.
