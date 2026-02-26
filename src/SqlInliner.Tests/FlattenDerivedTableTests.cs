@@ -1191,4 +1191,45 @@ public class FlattenDerivedTableTests
         result.ConvertedSql.ShouldNotContain("(CodeType");
         inliner.TotalDerivedTablesFlattened.ShouldBeGreaterThanOrEqualTo(1);
     }
+
+    [Test]
+    public void FlattenInsideGroupByDerivedTablePreservesColumnAlias()
+    {
+        // When a view (VInner) is flattened inside a GROUP BY query (VGrouped),
+        // and VInner.CompanyId maps to Companies_1.Id, the SELECT element
+        // "v.CompanyId" is rewritten to "Companies_1.Id" — but the inferred column
+        // name changes from CompanyId to Id. The outer query referencing cl.CompanyId
+        // then breaks. The fix adds an explicit AS alias to preserve the original name.
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VInner"),
+            @"CREATE VIEW dbo.VInner AS
+              SELECT c.Id AS ParentId, c.Name AS ParentName, c2.Id AS CompanyId
+              FROM dbo.Clusters cl
+              INNER JOIN dbo.Companies c ON c.Id = cl.ParentId
+              INNER JOIN dbo.Companies c2 ON c2.Id = cl.CompanyId");
+
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VGrouped"),
+            @"CREATE VIEW dbo.VGrouped AS
+              SELECT v.CompanyId, string_agg(v.ParentName, ', ') AS ParentName2
+              FROM dbo.VInner v
+              GROUP BY v.CompanyId");
+
+        const string viewSql = @"CREATE VIEW dbo.VTest AS
+            SELECT t.Id, cl.ParentName2
+            FROM dbo.Things t
+            LEFT JOIN dbo.VGrouped cl ON t.CompanyId = cl.CompanyId";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        // VInner should be flattened inside VGrouped (it has no GROUP BY itself)
+        inliner.TotalDerivedTablesFlattened.ShouldBeGreaterThanOrEqualTo(1);
+
+        // The outer reference cl.CompanyId must still resolve — the derived table
+        // must expose CompanyId (not just Id) as a column name.
+        result.ConvertedSql.ShouldContain("cl.CompanyId");
+    }
 }

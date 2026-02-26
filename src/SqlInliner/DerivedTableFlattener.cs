@@ -270,8 +270,16 @@ internal sealed class DerivedTableFlattener
             }
         }
 
+        // Snapshot inferred column names in the SELECT list before rewriting — when
+        // the rewrite changes the last identifier (e.g., v.CompanyId → Companies_1.Id),
+        // the inferred column name would silently change, breaking enclosing scopes.
+        var selectNameSnapshots = SnapshotSelectColumnNames(outerQuery, derivedAlias);
+
         // Rewrite outer column references: derivedAlias.col -> inner column's identifiers
         RewriteOuterColumnReferences(outerQuery, derivedAlias, columnMap);
+
+        // Restore column names where the inferred name changed
+        RestoreSelectColumnNames(selectNameSnapshots);
 
         // Return inner WHERE condition for the caller to place appropriately
         // (into parent JOIN's ON clause, or into the outer WHERE for top-level FROM entries)
@@ -478,6 +486,52 @@ internal sealed class DerivedTableFlattener
                 {
                     mpi.Identifiers.Add(new Identifier { Value = id.Value, QuoteType = id.QuoteType });
                 }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Captures the inferred column name (last identifier) of each unaliased SELECT element
+    /// that references the given derived table alias, before column reference rewriting.
+    /// </summary>
+    private static List<(SelectScalarExpression Element, string OriginalName)> SnapshotSelectColumnNames(
+        QuerySpecification outerQuery, string derivedAlias)
+    {
+        var snapshots = new List<(SelectScalarExpression, string)>();
+
+        foreach (var element in outerQuery.SelectElements)
+        {
+            if (element is not SelectScalarExpression { ColumnName: null, Expression: ColumnReferenceExpression colRef } scalar)
+                continue;
+
+            if (colRef.MultiPartIdentifier is { Identifiers.Count: >= 2 } mpi &&
+                string.Equals(mpi.Identifiers[0].Value, derivedAlias, StringComparison.OrdinalIgnoreCase))
+            {
+                snapshots.Add((scalar, mpi.Identifiers.Last().Value));
+            }
+        }
+
+        return snapshots;
+    }
+
+    /// <summary>
+    /// After column reference rewriting, restores explicit aliases on SELECT elements
+    /// where the inferred column name (last identifier) changed from the snapshot.
+    /// </summary>
+    private static void RestoreSelectColumnNames(List<(SelectScalarExpression Element, string OriginalName)> snapshots)
+    {
+        foreach (var (element, originalName) in snapshots)
+        {
+            if (element.Expression is not ColumnReferenceExpression colRef)
+                continue;
+
+            var currentName = colRef.MultiPartIdentifier?.Identifiers.LastOrDefault()?.Value;
+            if (currentName != null && !string.Equals(originalName, currentName, StringComparison.OrdinalIgnoreCase))
+            {
+                element.ColumnName = new IdentifierOrValueExpression
+                {
+                    Identifier = new Identifier { Value = originalName },
+                };
             }
         }
     }
