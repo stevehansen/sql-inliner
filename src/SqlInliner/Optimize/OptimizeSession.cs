@@ -482,13 +482,23 @@ public sealed class OptimizeSession
                 wizard.Info($"Inlined execution plan:  {path}");
             }
 
+            // Gather server info for the report
+            string? serverVersion = null, databaseName = null;
+            try
+            {
+                (serverVersion, databaseName) = queryRunner.GetServerInfo();
+            }
+            catch { /* non-critical — report works without it */ }
+
             // Save HTML report
             var reportPath = session.SaveBenchmarkReport(
                 $"[{schema}].[{viewName}]",
                 $"[{schema}].[{inlinedViewName}]",
                 currentOptions.ToMetadataString(),
                 originalBench,
-                inlinedBench);
+                inlinedBench,
+                serverVersion,
+                databaseName);
             wizard.Info($"Benchmark report: {reportPath}");
 
             session.Log($"Benchmark: original CPU={originalBench.CpuTimeMs}ms elapsed={originalBench.ElapsedTimeMs}ms reads={originalBench.LogicalReads}");

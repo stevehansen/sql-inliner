@@ -3,7 +3,9 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Linq;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using Microsoft.Data.SqlClient;
 
 namespace SqlInliner.Optimize;
@@ -30,6 +32,123 @@ public sealed class BenchmarkResult
     public long LogicalReads { get; set; }
     public List<TableIOStats> TableStats { get; set; } = new();
     public string? ExecutionPlanXml { get; set; }
+}
+
+/// <summary>
+/// A single wait type entry from an execution plan's WaitStats.
+/// </summary>
+public sealed class WaitStatEntry
+{
+    public string WaitType { get; set; } = "";
+    public long WaitTimeMs { get; set; }
+    public long WaitCount { get; set; }
+}
+
+/// <summary>
+/// Key metrics extracted from a SQL Server execution plan XML (.sqlplan).
+/// </summary>
+public sealed class ExecutionPlanSummary
+{
+    public double EstimatedCost { get; set; }
+    public double EstimatedRows { get; set; }
+    public int DegreeOfParallelism { get; set; }
+    public long MemoryGrantKB { get; set; }
+    public long MaxUsedMemoryKB { get; set; }
+    public long CachedPlanSizeKB { get; set; }
+    public long CompileTimeMs { get; set; }
+    public long CompileCpuMs { get; set; }
+    public long CompileMemoryKB { get; set; }
+    public string? OptimizationLevel { get; set; }
+    public string? EarlyAbortReason { get; set; }
+    public int CardinalityEstimatorVersion { get; set; }
+    public List<WaitStatEntry> WaitStats { get; set; } = new();
+    public int TotalOperators { get; set; }
+
+    /// <summary>
+    /// Attempts to parse key metrics from a SQL Server execution plan XML string.
+    /// Returns null if the XML is null/empty or cannot be parsed.
+    /// </summary>
+    public static ExecutionPlanSummary? TryParse(string? xml)
+    {
+        if (string.IsNullOrEmpty(xml))
+            return null;
+
+        try
+        {
+            var doc = XDocument.Parse(xml);
+            var ns = doc.Root?.Name.Namespace ?? XNamespace.None;
+
+            var stmt = doc.Descendants(ns + "StmtSimple").FirstOrDefault();
+            var queryPlan = doc.Descendants(ns + "QueryPlan").FirstOrDefault();
+            var memGrant = doc.Descendants(ns + "MemoryGrantInfo").FirstOrDefault();
+
+            if (stmt == null || queryPlan == null)
+                return null;
+
+            var summary = new ExecutionPlanSummary
+            {
+                EstimatedCost = ParseDouble(stmt, "StatementSubTreeCost"),
+                EstimatedRows = ParseDouble(stmt, "StatementEstRows"),
+                OptimizationLevel = (string?)stmt.Attribute("StatementOptmLevel"),
+                EarlyAbortReason = (string?)stmt.Attribute("StatementOptmEarlyAbortReason"),
+                CardinalityEstimatorVersion = ParseInt(stmt, "CardinalityEstimationModelVersion"),
+
+                DegreeOfParallelism = ParseInt(queryPlan, "DegreeOfParallelism"),
+                MemoryGrantKB = ParseLong(queryPlan, "MemoryGrant"),
+                CachedPlanSizeKB = ParseLong(queryPlan, "CachedPlanSize"),
+                CompileTimeMs = ParseLong(queryPlan, "CompileTime"),
+                CompileCpuMs = ParseLong(queryPlan, "CompileCPU"),
+                CompileMemoryKB = ParseLong(queryPlan, "CompileMemory"),
+            };
+
+            if (memGrant != null)
+            {
+                summary.MaxUsedMemoryKB = ParseLong(memGrant, "MaxUsedMemory");
+                // Use GrantedMemory if MemoryGrant wasn't on QueryPlan
+                if (summary.MemoryGrantKB == 0)
+                    summary.MemoryGrantKB = ParseLong(memGrant, "GrantedMemory");
+            }
+
+            // Wait statistics
+            foreach (var wait in doc.Descendants(ns + "Wait"))
+            {
+                summary.WaitStats.Add(new WaitStatEntry
+                {
+                    WaitType = (string?)wait.Attribute("WaitType") ?? "",
+                    WaitTimeMs = ParseLong(wait, "WaitTimeMs"),
+                    WaitCount = ParseLong(wait, "WaitCount"),
+                });
+            }
+
+            // Count total operators (RelOp nodes)
+            summary.TotalOperators = doc.Descendants(ns + "RelOp").Count();
+
+            return summary;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static double ParseDouble(XElement el, string attr)
+    {
+        var val = (string?)el.Attribute(attr);
+        return val != null && double.TryParse(val, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : 0;
+    }
+
+    private static int ParseInt(XElement el, string attr)
+    {
+        var val = (string?)el.Attribute(attr);
+        return val != null && int.TryParse(val, out var i) ? i : 0;
+    }
+
+    private static long ParseLong(XElement el, string attr)
+    {
+        var val = (string?)el.Attribute(attr);
+        return val != null && long.TryParse(val, out var l) ? l : 0;
+    }
 }
 
 /// <summary>
@@ -175,6 +294,16 @@ SET STATISTICS IO OFF;";
             result.TableStats.Add(stats);
             result.LogicalReads += stats.LogicalReads;
         }
+    }
+
+    /// <summary>
+    /// Returns the SQL Server version string and current database name.
+    /// </summary>
+    public (string Version, string Database) GetServerInfo()
+    {
+        var version = ExecuteScalarWithTimeout<string>("SELECT @@VERSION");
+        var database = ExecuteScalarWithTimeout<string>("SELECT DB_NAME()");
+        return (version, database);
     }
 
     private T ExecuteScalarWithTimeout<T>(string sql)
