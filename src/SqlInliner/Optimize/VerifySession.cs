@@ -245,7 +245,10 @@ public sealed class VerifySession
             catch (SqlException ex) when (ex.Number == -2)
             {
                 result.Status = ViewVerifyStatus.Timeout;
-                result.Errors.Add($"Query timed out after {sessionOptions.TimeoutSeconds}s");
+                if (result.InlinedRowCount.HasValue)
+                    result.Errors.Add($"Timed out after {sessionOptions.TimeoutSeconds}s (inlined count: {result.InlinedRowCount:N0})");
+                else
+                    result.Errors.Add($"Timed out after {sessionOptions.TimeoutSeconds}s");
             }
             catch (InvalidOperationException ex) when (ex.Message.Contains("No database connection"))
             {
@@ -341,7 +344,10 @@ public sealed class VerifySession
             wizard.Info("");
             wizard.Warn($"--- {timeouts.Count} Timeout(s) ---");
             foreach (var t in timeouts)
-                wizard.Warn($"  {t.ViewName}");
+            {
+                var detail = t.Errors.Count > 0 ? t.Errors[0] : "";
+                wizard.Warn($"  {t.ViewName}: {detail}");
+            }
         }
 
         wizard.Info("");
