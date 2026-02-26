@@ -175,26 +175,58 @@ public sealed class VerifySession
                 {
                     var queryRunner = new QueryRunner(connection, sessionOptions.TimeoutSeconds);
 
-                    // COUNT comparison
-                    var originalCount = queryRunner.GetRowCount(schema, originalViewName);
-                    var inlinedCount = queryRunner.GetRowCount(schema, baseName);
+                    // COUNT inlined first — it should be faster (that's the point of inlining).
+                    // If it succeeds but the original times out, we still learn something useful.
+                    try
+                    {
+                        result.InlinedRowCount = queryRunner.GetRowCount(schema, baseName);
+                    }
+                    catch (SqlException ex) when (ex.Number == -2)
+                    {
+                        result.Status = ViewVerifyStatus.Timeout;
+                        result.Errors.Add($"COUNT on inlined view timed out after {sessionOptions.TimeoutSeconds}s");
+                    }
 
-                    result.OriginalRowCount = originalCount;
-                    result.InlinedRowCount = inlinedCount;
+                    if (result.Status != ViewVerifyStatus.Timeout)
+                    {
+                        try
+                        {
+                            result.OriginalRowCount = queryRunner.GetRowCount(schema, originalViewName);
+                        }
+                        catch (SqlException ex) when (ex.Number == -2)
+                        {
+                            result.Status = ViewVerifyStatus.Timeout;
+                            result.Errors.Add($"COUNT on original timed out after {sessionOptions.TimeoutSeconds}s (inlined count: {result.InlinedRowCount:N0})");
+                        }
+                    }
 
                     // EXCEPT comparison
-                    var (onlyInOriginal, onlyInInlined) = queryRunner.RunExceptComparison(schema, originalViewName, baseName);
-                    result.OnlyInOriginal = onlyInOriginal;
-                    result.OnlyInInlined = onlyInInlined;
-
-                    if (originalCount != inlinedCount || onlyInOriginal != 0 || onlyInInlined != 0)
+                    if (result.Status != ViewVerifyStatus.Timeout)
                     {
-                        result.Status = ViewVerifyStatus.ValidationFail;
-                        result.Errors.Add($"Row count: original={originalCount:N0} inlined={inlinedCount:N0}, EXCEPT: {onlyInOriginal}/{onlyInInlined}");
+                        try
+                        {
+                            var (onlyInOriginal, onlyInInlined) = queryRunner.RunExceptComparison(schema, originalViewName, baseName);
+                            result.OnlyInOriginal = onlyInOriginal;
+                            result.OnlyInInlined = onlyInInlined;
+                        }
+                        catch (SqlException ex) when (ex.Number == -2)
+                        {
+                            result.Status = ViewVerifyStatus.Timeout;
+                            result.Errors.Add($"EXCEPT comparison timed out after {sessionOptions.TimeoutSeconds}s (counts: original={result.OriginalRowCount:N0} inlined={result.InlinedRowCount:N0})");
+                        }
                     }
-                    else
+
+                    if (result.Status != ViewVerifyStatus.Timeout)
                     {
-                        result.Status = ViewVerifyStatus.Pass;
+                        if (result.OriginalRowCount != result.InlinedRowCount || result.OnlyInOriginal != 0 || result.OnlyInInlined != 0)
+                        {
+                            result.Status = ViewVerifyStatus.ValidationFail;
+                            result.Errors.Add($"Row count: original={result.OriginalRowCount:N0} inlined={result.InlinedRowCount:N0}, EXCEPT: {result.OnlyInOriginal}/{result.OnlyInInlined}");
+                        }
+                        else
+                        {
+                            result.Status = ViewVerifyStatus.Pass;
+                        }
                     }
                 }
                 finally
