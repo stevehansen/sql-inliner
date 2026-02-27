@@ -314,6 +314,28 @@ public sealed class DatabaseViewInliner
                                 break;
                             }
                         }
+
+                        // Check if the remaining column is used outside the join condition.
+                        // The join key column may also appear in SELECT/WHERE — in that case
+                        // we can't strip the view because the column is needed externally.
+                        // Note: JoinConditions only stores second-table references. When the
+                        // view is the first table in a join, check ALL references to the alias.
+                        {
+                            HashSet<ColumnReferenceExpression>? joinColumnRefs = null;
+                            if (references.JoinConditions.TryGetValue(referenced, out var joinSearchCondition))
+                                joinColumnRefs = CollectColumnReferences(joinSearchCondition);
+
+                            var hasExternalRefs = references.ColumnReferences
+                                .Where(c => joinColumnRefs == null || !joinColumnRefs.Contains(c))
+                                .Any(c => c.MultiPartIdentifier.Count >= 2 &&
+                                     string.Equals(c.MultiPartIdentifier[0].Value, alias, StringComparison.OrdinalIgnoreCase));
+                            if (hasExternalRefs)
+                            {
+                                Warnings.Add($"Only 1 column is selected from {viewName} {alias} in {view.ViewName}, but it is referenced outside the join condition.");
+                                break;
+                            }
+                        }
+
                         toRemove.Add(referenced);
                         TotalJoinsStripped++;
                         continue;

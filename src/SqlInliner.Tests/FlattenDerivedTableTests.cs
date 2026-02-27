@@ -1232,4 +1232,411 @@ public class FlattenDerivedTableTests
         // must expose CompanyId (not just Id) as a column name.
         result.ConvertedSql.ShouldContain("cl.CompanyId");
     }
+
+    // ========================================================================
+    // Bug fix: Unqualified outer column references
+    // ========================================================================
+
+    [Test]
+    public void UnqualifiedOuterRef_QualifiedAfterFlatten()
+    {
+        // Outer query uses unqualified refs (Id, Name) to columns from the derived table.
+        // After flattening, these must be rewritten to the inner table's qualified refs.
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VInner"),
+            "CREATE VIEW dbo.VInner AS SELECT p.Id, p.Name FROM dbo.People p");
+
+        const string viewSql = @"CREATE VIEW dbo.VTest AS
+            SELECT Id, Name
+            FROM dbo.VInner dt
+            INNER JOIN dbo.Other o ON o.PersonId = dt.Id";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        inliner.TotalDerivedTablesFlattened.ShouldBeGreaterThanOrEqualTo(1);
+
+        // Unqualified refs should now be qualified with the inner table alias
+        result.ConvertedSql.ShouldContain("dt.Id");
+        result.ConvertedSql.ShouldContain("dt.Name");
+    }
+
+    [Test]
+    public void UnqualifiedOuterRef_ComplexExpression_NotFlattened()
+    {
+        // Outer query uses unqualified ref to a computed column — flattening should be skipped.
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VComputed"),
+            "CREATE VIEW dbo.VComputed AS SELECT p.Id, p.FirstName + ' ' + p.LastName AS FullName FROM dbo.People p");
+
+        const string viewSql = @"CREATE VIEW dbo.VTest AS
+            SELECT FullName
+            FROM dbo.VComputed dt";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        // Should NOT flatten because FullName maps to a complex expression
+        result.ConvertedSql.ShouldContain("dt");
+    }
+
+    [Test]
+    public void CascadingAliasRename_NoCorruption()
+    {
+        // Inner view has tables with aliases c and c1. Outer already uses alias c.
+        // The rename c→c1 and c1→c11 must not corrupt each other.
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VInner"),
+            @"CREATE VIEW dbo.VInner AS
+              SELECT c.Id, c.Name, c1.Code
+              FROM dbo.Companies c
+              INNER JOIN dbo.Codes c1 ON c1.CompanyId = c.Id");
+
+        const string viewSql = @"CREATE VIEW dbo.VTest AS
+            SELECT v.Id, v.Name, v.Code, c.Category
+            FROM dbo.VInner v
+            INNER JOIN dbo.Categories c ON c.CompanyId = v.Id";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        inliner.TotalDerivedTablesFlattened.ShouldBeGreaterThanOrEqualTo(1);
+
+        // Verify the SQL doesn't contain corrupted aliases — every column ref
+        // must use an alias that actually appears as a table alias in the FROM clause.
+        // Specifically, c11 should not appear unless there's a table aliased as c11.
+        var sql = result.ConvertedSql;
+        if (sql.Contains("c11."))
+        {
+            // If c11 refs exist, there must be a matching "AS c11" alias
+            sql.ShouldContain("AS c11");
+        }
+    }
+
+    [Test]
+    public void SameViewInlinedTwice_NoAliasCrossContamination()
+    {
+        // VLanguages is used twice: once directly in the outer query,
+        // and once inside VPersonGsms (aliased as phoneType).
+        // This mirrors the pattern where the same view appears under multiple aliases.
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VLanguages"),
+            "CREATE VIEW dbo.VLanguages AS SELECT Id, Code, CodeType FROM dbo.Codes WHERE CodeType = 'LANGUAGE'");
+
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VPersonGsms"),
+            @"CREATE VIEW dbo.VPersonGsms AS
+              SELECT PersonGsms.PersonId, PersonGsms.GsmNr, PersonGsms.DefaultInd
+              FROM dbo.PersonGsms
+              INNER JOIN dbo.VLanguages AS phoneType
+              ON phoneType.CodeType = 'GSMTYPE' AND phoneType.Code = 'GSM Werk'
+              AND PersonGsms.GsmType = phoneType.Id");
+
+        const string viewSql = @"CREATE VIEW dbo.VTest AS
+            SELECT Persons.Id, Persons.FirstName, VLanguages.Code AS Language, VPersonGsms.GsmNr AS GSM
+            FROM dbo.Persons
+            LEFT OUTER JOIN dbo.Countries ON Persons.Nationality = Countries.Id
+            LEFT OUTER JOIN dbo.VLanguages
+              ON Persons.Language = VLanguages.Id
+            LEFT OUTER JOIN dbo.VPersonGsms
+              ON Persons.Id = VPersonGsms.PersonId AND VPersonGsms.DefaultInd = 1
+            WHERE Persons.ActiveInd = 1";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        var sql = result.ConvertedSql;
+
+        // The phoneType join condition should reference phoneType, not VLanguages
+        sql.ShouldNotContain("VLanguages.Code = 'GSM Werk'");
+        sql.ShouldNotContain("VLanguages.Code = N'GSM Werk'");
+
+        // phoneType alias should exist in the output
+        sql.ShouldContain("phoneType");
+    }
+
+    [Test]
+    public void UnqualifiedRefInJoinCondition_NotClaimedByWrongDerivedTable()
+    {
+        // Unqualified ref aliasing bug:
+        // The outer view directly joins VLanguages and phoneType (both dbo.Codes).
+        // The phoneType ON condition has an UNQUALIFIED "Code" reference.
+        // When VLanguages is flattened first, its 1-part matching in RewriteOuterColumnReferences
+        // incorrectly claims the unqualified "Code" (which belongs to phoneType) and rewrites it
+        // to "l.Code" (VLanguages's alias).
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VLanguages"),
+            "CREATE VIEW dbo.VLanguages AS SELECT Id, Code, CodeType FROM dbo.Codes WHERE CodeType = 'LANGUAGE'");
+
+        // Outer view joins VLanguages directly, and also joins PersonGsms + VLanguages AS phoneType.
+        // Critically, the phoneType ON condition has unqualified "Code" (not "phoneType.Code").
+        const string viewSql = @"CREATE VIEW dbo.VTest AS
+            SELECT p.Id, p.FirstName, l.Code AS Language, PersonGsms.GsmNr AS GSM
+            FROM dbo.Persons AS p
+            LEFT OUTER JOIN dbo.VLanguages AS l
+              ON p.Language = l.Id
+            LEFT OUTER JOIN dbo.PersonGsms
+              INNER JOIN dbo.VLanguages AS phoneType
+              ON phoneType.CodeType = 'GSMTYPE' AND Code = 'GSM Werk'
+                 AND PersonGsms.GsmType = phoneType.Id
+              ON p.Id = PersonGsms.PersonId AND PersonGsms.DefaultInd = 1";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        var sql = result.ConvertedSql;
+        TestContext.Out.WriteLine("=== Generated SQL ===");
+        TestContext.Out.WriteLine(sql);
+        TestContext.Out.WriteLine("=== End SQL ===");
+
+        // The unqualified "Code" should NOT be rewritten to "l.Code" (VLanguages alias)
+        sql.ShouldNotContain("l.Code = 'GSM Werk'");
+        sql.ShouldNotContain("l.Code = N'GSM Werk'");
+
+        // phoneType alias should be present and Code should reference it
+        sql.ShouldContain("phoneType");
+    }
+
+    [Test]
+    public void CrossScopeRef_QdtNotFlattened_WhenReferencedFromSiblingJoinOnClause()
+    {
+        // Cross-scope reference bug: the original view has a
+        // cross-scope reference (VLanguages.Code) in a nested inner join's ON clause,
+        // referencing the outer VLanguages. SQL Server allows this with derived tables
+        // but not with plain table aliases. So VLanguages must NOT be flattened.
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VLanguages"),
+            "CREATE VIEW dbo.VLanguages AS SELECT Id, Code, CodeType FROM dbo.Codes WHERE CodeType = 'LANGUAGE'");
+
+        const string viewSql = @"CREATE VIEW dbo.VTest AS
+            SELECT p.Id, p.FirstName, VLanguages.Code AS Language, PersonGsms.GsmNr AS GSM
+            FROM dbo.Persons AS p
+            LEFT OUTER JOIN dbo.VLanguages
+              ON p.Language = VLanguages.Id
+            LEFT OUTER JOIN dbo.PersonGsms
+              INNER JOIN dbo.VLanguages AS phoneType
+              ON phoneType.CodeType = 'GSMTYPE' AND VLanguages.Code = 'GSM Werk'
+                 AND PersonGsms.GsmType = phoneType.Id
+              ON p.Id = PersonGsms.PersonId AND PersonGsms.DefaultInd = 1";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        var sql = result.ConvertedSql;
+
+        // VLanguages must NOT be flattened (cross-scope ref from sibling join's ON clause)
+        sql.ShouldContain(") AS VLanguages");
+
+        // phoneType should still be flattened (no cross-scope issues)
+        sql.ShouldContain("dbo.Codes AS phoneType");
+
+        // The cross-scope reference VLanguages.Code should be preserved
+        sql.ShouldContain("VLanguages.Code");
+    }
+
+    [Test]
+    public void CrossScopeRef_UnqualifiedRef_NotFlattened_WhenMatchesColumnMapInCrossScopeOnClause()
+    {
+        // Unqualified cross-scope ref bug: VLanguages (view aliasing dbo.Codes) is in the
+        // outer FROM clause. phoneType (also dbo.Codes) is in a nested INNER JOIN.
+        // The INNER JOIN's ON clause has an unqualified "Code" that the flattener's rewriter
+        // would incorrectly claim as VLanguages.Code, creating a cross-scope reference.
+        // VLanguages must NOT be flattened when this pattern exists.
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VLanguages"),
+            "CREATE VIEW dbo.VLanguages AS SELECT c.Id, c.Code, c.CodeType FROM dbo.Codes c WHERE c.CodeType = N'LANGUAGE'");
+
+        const string viewSql = @"CREATE VIEW dbo.VTest AS
+            SELECT p.Id, p.FirstName, VLanguages.Code AS Language, PersonGsms.GsmNr AS GSM
+            FROM dbo.Persons AS p
+            LEFT OUTER JOIN dbo.VLanguages
+              ON p.Language = VLanguages.Id
+            LEFT OUTER JOIN dbo.PersonGsms
+              INNER JOIN dbo.Codes AS phoneType
+              ON phoneType.CodeType = 'GSMTYPE' AND Code = 'GSM Werk'
+                 AND PersonGsms.GsmType = phoneType.Id
+              ON p.Id = PersonGsms.PersonId AND PersonGsms.DefaultInd = 1";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        var sql = result.ConvertedSql;
+
+        // VLanguages must NOT be flattened — unqualified Code in cross-scope ON matches column map
+        sql.ShouldContain(") AS VLanguages");
+
+        // The unqualified Code should NOT be rewritten to VLanguages.Code
+        sql.ShouldNotContain("VLanguages.Code = 'GSM Werk'");
+        sql.ShouldNotContain("VLanguages.Code = N'GSM Werk'");
+    }
+
+    [Test]
+    public void UnqualifiedOuterRef_InSelectAndWhere_BothRewritten()
+    {
+        // Unqualified refs in both SELECT and WHERE should both be rewritten.
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VInner"),
+            "CREATE VIEW dbo.VInner AS SELECT p.Id, p.Name, p.ActiveInd FROM dbo.People p");
+
+        const string viewSql = @"CREATE VIEW dbo.VTest AS
+            SELECT Id, Name
+            FROM dbo.VInner dt
+            INNER JOIN dbo.Other o ON o.PersonId = dt.Id
+            WHERE ActiveInd = 1";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        inliner.TotalDerivedTablesFlattened.ShouldBeGreaterThanOrEqualTo(1);
+
+        // Both SELECT and WHERE refs should be qualified
+        result.ConvertedSql.ShouldContain("dt.Id");
+        result.ConvertedSql.ShouldContain("dt.Name");
+        result.ConvertedSql.ShouldContain("dt.ActiveInd");
+    }
+
+    // ========================================================================
+    // Regression: OUTER APPLY lateral refs must prevent column stripping
+    // ========================================================================
+
+    [Test]
+    public void OuterApply_LateralRef_PreventsColumnStripping()
+    {
+        // Reproduction of VRegistrations bug: an OUTER APPLY subquery references
+        // Registrations.CompanyId via a lateral reference, but the DerivedTableStripper
+        // doesn't look inside APPLY subqueries and strips CompanyId.
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VRegistrations"),
+            @"CREATE VIEW dbo.VRegistrations AS
+              SELECT Persons.Id, Persons.Name, PersonContracts.CompanyId
+              FROM dbo.Persons
+              INNER JOIN dbo.PersonContracts ON Persons.Id = PersonContracts.PersonId");
+
+        const string viewSql = @"CREATE VIEW dbo.VTest AS
+            SELECT r.Id, r.Name, AccountNr.IBAN
+            FROM dbo.VRegistrations r
+            OUTER APPLY (SELECT TOP 1 AccountNrs.IBAN
+                         FROM dbo.CompanyAccountNrs
+                         INNER JOIN dbo.AccountNrs ON CompanyAccountNrs.AccountNrId = AccountNrs.Id
+                         WHERE r.CompanyId = CompanyAccountNrs.CompanyId) AS AccountNr";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0, $"Errors: {string.Join("; ", inliner.Errors)}");
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        // CompanyId must be preserved in the derived table — it's needed by the OUTER APPLY
+        result.ConvertedSql.ShouldContain("CompanyId");
+        result.ConvertedSql.ShouldContain("r.CompanyId");
+    }
+
+    // ========================================================================
+    // Regression: case-1 join stripping must not remove views used in SELECT
+    // ========================================================================
+
+    [Test]
+    public void JoinStripping_Case1_KeepsViewUsedInSelect_SecondTable()
+    {
+        // VCompanies is the SECOND table in the join — tests JoinConditions path.
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VCompanies"),
+            "CREATE VIEW dbo.VCompanies AS SELECT c.Id, c.Name FROM dbo.Companies c");
+
+        const string viewSql = @"CREATE VIEW dbo.VTest AS
+            SELECT VCompanies.Id, GroupCV.Company, GroupCV.TotalCV
+            FROM (SELECT CompanyId, MAX(Company) AS Company, COUNT(*) AS TotalCV
+                  FROM dbo.SomeTable GROUP BY CompanyId) AS GroupCV
+            LEFT OUTER JOIN dbo.VCompanies ON GroupCV.CompanyId = VCompanies.Id";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        // VCompanies must NOT be stripped — its Id column is used in the SELECT
+        result.ConvertedSql.ShouldContain("VCompanies");
+    }
+
+    [Test]
+    public void JoinStripping_Case1_KeepsViewUsedInSelect_FirstTable()
+    {
+        // Reproduction of VCountCV bug: VCompanies is the FIRST table in the join
+        // (no JoinConditions entry). The case-1 check must still detect external refs.
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VCompanies"),
+            "CREATE VIEW dbo.VCompanies AS SELECT c.Id, c.Name FROM dbo.Companies c");
+
+        const string viewSql = @"CREATE VIEW dbo.VTest AS
+            SELECT VCompanies.Id, GroupCV.Company, GroupCV.TotalCV
+            FROM dbo.VCompanies
+            LEFT OUTER JOIN (SELECT CompanyId, MAX(Company) AS Company, COUNT(*) AS TotalCV
+                  FROM dbo.SomeTable GROUP BY CompanyId) AS GroupCV
+                  ON GroupCV.CompanyId = VCompanies.Id";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0, $"Errors: {string.Join("; ", inliner.Errors)}");
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        // VCompanies must NOT be stripped — its Id column is used in the SELECT
+        result.ConvertedSql.ShouldContain("VCompanies");
+    }
+
+    [Test]
+    public void JoinStripping_Case1_KeepsViewUsedInSelect_WithNestedView()
+    {
+        // Same as JoinStripping_Case1_KeepsViewUsedInSelect but with a view inside the
+        // derived table (matching real VCountCV structure: GroupCV wraps VCvs view).
+        // This puts TWO views in references.Views, testing that the loop correctly
+        // handles both without interfering.
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VCompanies"),
+            "CREATE VIEW dbo.VCompanies AS SELECT c.Id, c.Name FROM dbo.Companies c");
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VCvs"),
+            @"CREATE VIEW dbo.VCvs AS
+              SELECT pc.CompanyId, c.Name AS Company
+              FROM dbo.PersonCVs pc
+              INNER JOIN dbo.Companies c ON pc.CompanyId = c.Id");
+
+        const string viewSql = @"CREATE VIEW dbo.VTest AS
+            SELECT VCompanies.Id, GroupCV.Company, GroupCV.TotalCV
+            FROM (SELECT CompanyId, MAX(Company) AS Company, COUNT(*) AS TotalCV
+                  FROM dbo.VCvs AS VCvs GROUP BY CompanyId) AS GroupCV
+            LEFT OUTER JOIN dbo.VCompanies ON GroupCV.CompanyId = VCompanies.Id";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, FlattenOptions());
+        inliner.Errors.Count.ShouldBe(0, $"Errors: {string.Join("; ", inliner.Errors)}");
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        AssertValidSql(result.ConvertedSql);
+
+        // VCompanies must NOT be stripped — its Id column is used in the SELECT
+        result.ConvertedSql.ShouldContain("VCompanies");
+    }
 }

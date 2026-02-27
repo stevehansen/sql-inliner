@@ -18,10 +18,16 @@ internal sealed class DerivedTableFlattener
     public List<string> Warnings { get; } = new();
 
     /// <summary>
+    /// The root AST tree, used for tree-wide cross-scope reference checking.
+    /// </summary>
+    private TSqlFragment? _rootTree;
+
+    /// <summary>
     /// Flattens eligible derived tables in the given AST tree. Returns the number of derived tables flattened.
     /// </summary>
     public int Flatten(TSqlFragment tree)
     {
+        _rootTree = tree;
         var totalFlattened = 0;
 
         // Keep iterating until no more flattening occurs (handles nested derived tables)
@@ -60,9 +66,13 @@ internal sealed class DerivedTableFlattener
         if (outerQuery.FromClause == null)
             return 0;
 
+        // Detect column names shared by multiple QDTs in this scope — these are
+        // ambiguous for 1-part (unqualified) matching and must be skipped
+        var sharedColumnNames = CollectSharedQdtColumnNames(outerQuery.FromClause);
+
         for (var i = 0; i < outerQuery.FromClause.TableReferences.Count; i++)
         {
-            var result = TryFlattenTableReference(outerQuery, outerQuery.FromClause.TableReferences[i], outerAliases);
+            var result = TryFlattenTableReference(outerQuery, outerQuery.FromClause.TableReferences[i], outerAliases, sharedColumnNames);
             if (result.Replacement != null)
             {
                 outerQuery.FromClause.TableReferences[i] = result.Replacement;
@@ -79,7 +89,7 @@ internal sealed class DerivedTableFlattener
 
     private (TableReference? Replacement, int FlattenedCount) TryFlattenTableReference(
         QuerySpecification outerQuery, TableReference tableRef, HashSet<string> outerAliases,
-        QualifiedJoin? parentJoin = null, bool isSecondTableRef = false)
+        HashSet<string> sharedColumnNames, QualifiedJoin? parentJoin = null, bool isSecondTableRef = false)
     {
         switch (tableRef)
         {
@@ -90,7 +100,7 @@ internal sealed class DerivedTableFlattener
                 if (parentJoin != null && ShouldSkipFlattenForJoinContext(parentJoin, isSecondTableRef, derivedTable))
                     return (null, 0);
 
-                if (TryFlattenDerivedTable(outerQuery, derivedTable, outerAliases, out var replacement, out var innerWhere))
+                if (TryFlattenDerivedTable(outerQuery, derivedTable, outerAliases, sharedColumnNames, out var replacement, out var innerWhere))
                 {
                     if (innerWhere != null)
                     {
@@ -110,12 +120,12 @@ internal sealed class DerivedTableFlattener
             {
                 var totalFlattened = 0;
 
-                var firstResult = TryFlattenTableReference(outerQuery, join.FirstTableReference, outerAliases, join, false);
+                var firstResult = TryFlattenTableReference(outerQuery, join.FirstTableReference, outerAliases, sharedColumnNames, join, false);
                 if (firstResult.Replacement != null)
                     join.FirstTableReference = firstResult.Replacement;
                 totalFlattened += firstResult.FlattenedCount;
 
-                var secondResult = TryFlattenTableReference(outerQuery, join.SecondTableReference, outerAliases, join, true);
+                var secondResult = TryFlattenTableReference(outerQuery, join.SecondTableReference, outerAliases, sharedColumnNames, join, true);
                 if (secondResult.Replacement != null)
                     join.SecondTableReference = secondResult.Replacement;
                 totalFlattened += secondResult.FlattenedCount;
@@ -131,12 +141,12 @@ internal sealed class DerivedTableFlattener
                 // children; their inner WHERE (if any) will go to the outer WHERE clause.
                 var totalFlattened = 0;
 
-                var firstResult = TryFlattenTableReference(outerQuery, unqualifiedJoin.FirstTableReference, outerAliases);
+                var firstResult = TryFlattenTableReference(outerQuery, unqualifiedJoin.FirstTableReference, outerAliases, sharedColumnNames);
                 if (firstResult.Replacement != null)
                     unqualifiedJoin.FirstTableReference = firstResult.Replacement;
                 totalFlattened += firstResult.FlattenedCount;
 
-                var secondResult = TryFlattenTableReference(outerQuery, unqualifiedJoin.SecondTableReference, outerAliases);
+                var secondResult = TryFlattenTableReference(outerQuery, unqualifiedJoin.SecondTableReference, outerAliases, sharedColumnNames);
                 if (secondResult.Replacement != null)
                     unqualifiedJoin.SecondTableReference = secondResult.Replacement;
                 totalFlattened += secondResult.FlattenedCount;
@@ -187,7 +197,7 @@ internal sealed class DerivedTableFlattener
     /// Handles both single-table and multi-table (JOIN) inner queries.
     /// </summary>
     private bool TryFlattenDerivedTable(QuerySpecification outerQuery, QueryDerivedTable derivedTable,
-        HashSet<string> outerAliases, out TableReference? replacement, out BooleanExpression? innerWhereCondition)
+        HashSet<string> outerAliases, HashSet<string> sharedColumnNames, out TableReference? replacement, out BooleanExpression? innerWhereCondition)
     {
         replacement = null;
         innerWhereCondition = null;
@@ -222,8 +232,19 @@ internal sealed class DerivedTableFlattener
         if (columnMap == null)
             return false;
 
+        // Check for cross-scope references: if the QDT's alias is referenced from a
+        // join ON clause where the QDT is NOT a participant, flattening would break
+        // the reference. SQL Server resolves QDT aliases across join scopes, but after
+        // flattening to a table alias, the alias becomes scope-limited.
+        // Also checks unqualified refs matching the column map — the rewriter would
+        // qualify them as derivedAlias.col, creating a new cross-scope reference.
+        // Search the ENTIRE tree, not just the immediate outerQuery — cross-scope refs
+        // may exist at any ancestor scope.
+        if (HasCrossScopeReferencesInTree(derivedAlias, columnMap))
+            return false;
+
         // Check if any mapped complex expression is referenced by the outer query
-        if (HasReferencedComplexExpressions(outerQuery, derivedAlias, columnMap))
+        if (HasReferencedComplexExpressions(outerQuery, derivedAlias, columnMap, sharedColumnNames))
             return false;
 
         // Qualify unqualified column references in the inner query to prevent ambiguity
@@ -255,28 +276,46 @@ internal sealed class DerivedTableFlattener
         }
         else
         {
+            // Build a complete rename map first, then apply all renames atomically
+            // to prevent cascading corruption (e.g., c→c1 then c1→c11 affecting the first rename)
+            var renameMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var originalAliases = new List<(NamedTableReference TableRef, string OriginalAlias)>();
+
             foreach (var innerTableRef in innerTableRefs)
             {
                 var innerAlias = innerTableRef.Alias?.Value ?? innerTableRef.SchemaObject.BaseIdentifier.Value;
+                originalAliases.Add((innerTableRef, innerAlias));
                 var resolvedAlias = ResolveAliasCollision(innerAlias, outerAliases, derivedAlias);
                 if (resolvedAlias != innerAlias)
-                {
-                    RenameAliasInFragment(innerQuery, innerAlias, resolvedAlias);
-                    innerTableRef.Alias ??= new Identifier();
-                    innerTableRef.Alias.Value = resolvedAlias;
-                }
-
+                    renameMap[innerAlias] = resolvedAlias;
                 outerAliases.Add(resolvedAlias);
+            }
+
+            // Apply all renames simultaneously in a single pass
+            if (renameMap.Count > 0)
+            {
+                var renamer = new MultiAliasRenamer(renameMap);
+                innerQuery.Accept(renamer);
+            }
+
+            // Update table alias nodes using original alias values (not yet renamed by the visitor)
+            foreach (var (tableRef, originalAlias) in originalAliases)
+            {
+                if (renameMap.TryGetValue(originalAlias, out var resolvedAlias))
+                {
+                    tableRef.Alias ??= new Identifier();
+                    tableRef.Alias.Value = resolvedAlias;
+                }
             }
         }
 
         // Snapshot inferred column names in the SELECT list before rewriting — when
         // the rewrite changes the last identifier (e.g., v.CompanyId → Companies_1.Id),
         // the inferred column name would silently change, breaking enclosing scopes.
-        var selectNameSnapshots = SnapshotSelectColumnNames(outerQuery, derivedAlias);
+        var selectNameSnapshots = SnapshotSelectColumnNames(outerQuery, derivedAlias, columnMap);
 
         // Rewrite outer column references: derivedAlias.col -> inner column's identifiers
-        RewriteOuterColumnReferences(outerQuery, derivedAlias, columnMap);
+        RewriteOuterColumnReferences(outerQuery, derivedAlias, columnMap, sharedColumnNames);
 
         // Restore column names where the inferred name changed
         RestoreSelectColumnNames(selectNameSnapshots);
@@ -381,23 +420,139 @@ internal sealed class DerivedTableFlattener
     /// the mapped inner expression is not a simple ColumnReferenceExpression.
     /// </summary>
     private static bool HasReferencedComplexExpressions(QuerySpecification outerQuery,
-        string derivedAlias, Dictionary<string, ScalarExpression> columnMap)
+        string derivedAlias, Dictionary<string, ScalarExpression> columnMap, HashSet<string> sharedColumnNames)
     {
         var collector = new OuterScopeColumnReferenceCollector();
         outerQuery.Accept(collector);
 
         foreach (var colRef in collector.References)
         {
-            if (colRef.MultiPartIdentifier?.Identifiers.Count >= 2 &&
-                string.Equals(colRef.MultiPartIdentifier.Identifiers[0].Value, derivedAlias, StringComparison.OrdinalIgnoreCase))
+            var identCount = colRef.MultiPartIdentifier?.Identifiers.Count ?? 0;
+
+            if (identCount >= 2 &&
+                string.Equals(colRef.MultiPartIdentifier!.Identifiers[0].Value, derivedAlias, StringComparison.OrdinalIgnoreCase))
             {
                 var colName = colRef.MultiPartIdentifier.Identifiers.Last().Value;
                 if (columnMap.TryGetValue(colName, out var innerExpr) && innerExpr is not ColumnReferenceExpression)
                     return true;
             }
+            else if (identCount == 1)
+            {
+                // Unqualified ref — if it matches a complex expression in the column map, bail out.
+                // Skip if the column name is shared by multiple QDTs (ambiguous — may not belong to this QDT).
+                var colName = colRef.MultiPartIdentifier!.Identifiers[0].Value;
+                if (!sharedColumnNames.Contains(colName) &&
+                    columnMap.TryGetValue(colName, out var innerExpr) && innerExpr is not ColumnReferenceExpression)
+                    return true;
+            }
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Checks all QuerySpecifications in the root tree for cross-scope references to the alias.
+    /// This catches references at ancestor scopes — e.g., when VLanguages is inside VActivePersons's
+    /// QDT but referenced from an outer view's aliased join ON clause.
+    /// </summary>
+    private bool HasCrossScopeReferencesInTree(string derivedAlias, Dictionary<string, ScalarExpression> columnMap)
+    {
+        if (_rootTree == null)
+            return false;
+
+        var finder = new QuerySpecificationFinder();
+        _rootTree.Accept(finder);
+
+        foreach (var querySpec in finder.QuerySpecifications)
+        {
+            if (querySpec.FromClause != null && HasCrossScopeReferences(querySpec.FromClause, derivedAlias, columnMap))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if any join ON clause that does NOT contain the QDT (identified by derivedAlias)
+    /// has 2-part column references to the QDT's alias, or 1-part (unqualified) column
+    /// references matching the QDT's column map. Unqualified refs are checked because the
+    /// rewriter would qualify them as derivedAlias.col, creating a new cross-scope reference.
+    /// </summary>
+    private static bool HasCrossScopeReferences(FromClause fromClause, string derivedAlias,
+        Dictionary<string, ScalarExpression> columnMap)
+    {
+        foreach (var tableRef in fromClause.TableReferences)
+        {
+            if (CheckForCrossScopeRefs(tableRef, derivedAlias, columnMap))
+                return true;
+        }
+        return false;
+    }
+
+    private static bool CheckForCrossScopeRefs(TableReference tableRef, string derivedAlias,
+        Dictionary<string, ScalarExpression> columnMap)
+    {
+        switch (tableRef)
+        {
+            case QualifiedJoin join:
+            {
+                bool qdtInSubtree = ContainsAlias(join, derivedAlias);
+
+                if (!qdtInSubtree && join.SearchCondition != null)
+                {
+                    // This join doesn't contain the QDT. Check if its ON clause
+                    // has 2-part references to the QDT's alias, or 1-part references
+                    // matching the column map (which the rewriter would qualify).
+                    var collector = new OuterScopeColumnReferenceCollector();
+                    join.SearchCondition.Accept(collector);
+                    foreach (var colRef in collector.References)
+                    {
+                        var mpi = colRef.MultiPartIdentifier;
+                        if (mpi == null) continue;
+
+                        if (mpi.Identifiers.Count >= 2 &&
+                            string.Equals(mpi.Identifiers[0].Value, derivedAlias, StringComparison.OrdinalIgnoreCase))
+                            return true;
+
+                        if (mpi.Identifiers.Count == 1 &&
+                            columnMap.ContainsKey(mpi.Identifiers[0].Value))
+                            return true;
+                    }
+                }
+
+                return CheckForCrossScopeRefs(join.FirstTableReference, derivedAlias, columnMap) ||
+                       CheckForCrossScopeRefs(join.SecondTableReference, derivedAlias, columnMap);
+            }
+            case UnqualifiedJoin unqualifiedJoin:
+                return CheckForCrossScopeRefs(unqualifiedJoin.FirstTableReference, derivedAlias, columnMap) ||
+                       CheckForCrossScopeRefs(unqualifiedJoin.SecondTableReference, derivedAlias, columnMap);
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Returns true if the table reference subtree contains a QDT or NamedTableReference
+    /// with the given alias.
+    /// </summary>
+    private static bool ContainsAlias(TableReference tableRef, string alias)
+    {
+        switch (tableRef)
+        {
+            case QueryDerivedTable qdt:
+                return string.Equals(qdt.Alias?.Value, alias, StringComparison.OrdinalIgnoreCase);
+            case NamedTableReference named:
+                var namedAlias = named.Alias?.Value ?? named.SchemaObject.BaseIdentifier.Value;
+                return string.Equals(namedAlias, alias, StringComparison.OrdinalIgnoreCase);
+            case QualifiedJoin join:
+                return ContainsAlias(join.FirstTableReference, alias) ||
+                       ContainsAlias(join.SecondTableReference, alias);
+            case UnqualifiedJoin unqualifiedJoin:
+                return ContainsAlias(unqualifiedJoin.FirstTableReference, alias) ||
+                       ContainsAlias(unqualifiedJoin.SecondTableReference, alias);
+            default:
+                return false;
+        }
     }
 
     /// <summary>
@@ -451,8 +606,8 @@ internal sealed class DerivedTableFlattener
     /// Rewrites column references in the outer query that point to the derived table alias
     /// to point to the inner table's columns instead.
     /// </summary>
-    private static void RewriteOuterColumnReferences(QuerySpecification outerQuery,
-        string derivedAlias, Dictionary<string, ScalarExpression> columnMap)
+    private void RewriteOuterColumnReferences(QuerySpecification outerQuery,
+        string derivedAlias, Dictionary<string, ScalarExpression> columnMap, HashSet<string> sharedColumnNames)
     {
         // Collect outer-scope column references from all clauses
         // (does not descend into QueryDerivedTable nodes)
@@ -468,14 +623,28 @@ internal sealed class DerivedTableFlattener
 
         foreach (var colRef in collector.References)
         {
-            if (colRef.MultiPartIdentifier is not { Identifiers.Count: >= 2 } mpi)
+            var mpi = colRef.MultiPartIdentifier;
+            if (mpi == null)
                 continue;
 
-            if (!string.Equals(mpi.Identifiers[0].Value, derivedAlias, StringComparison.OrdinalIgnoreCase))
-                continue;
+            string? colName = null;
 
-            var colName = mpi.Identifiers.Last().Value;
-            if (!columnMap.TryGetValue(colName, out var innerExpr))
+            if (mpi.Identifiers.Count >= 2 &&
+                string.Equals(mpi.Identifiers[0].Value, derivedAlias, StringComparison.OrdinalIgnoreCase))
+            {
+                colName = mpi.Identifiers.Last().Value;
+            }
+            else if (mpi.Identifiers.Count == 1 && columnMap.ContainsKey(mpi.Identifiers[0].Value)
+                     && !sharedColumnNames.Contains(mpi.Identifiers[0].Value))
+            {
+                // Unqualified ref matching a column in the derived table.
+                // Skip if the column name is shared by multiple QDTs in scope — the ref
+                // may belong to a sibling QDT (e.g., Code in phoneType's ON condition
+                // should not be claimed by VLanguages when both derive from dbo.Codes).
+                colName = mpi.Identifiers[0].Value;
+            }
+
+            if (colName == null || !columnMap.TryGetValue(colName, out var innerExpr))
                 continue;
 
             if (innerExpr is ColumnReferenceExpression innerColRef)
@@ -495,7 +664,7 @@ internal sealed class DerivedTableFlattener
     /// that references the given derived table alias, before column reference rewriting.
     /// </summary>
     private static List<(SelectScalarExpression Element, string OriginalName)> SnapshotSelectColumnNames(
-        QuerySpecification outerQuery, string derivedAlias)
+        QuerySpecification outerQuery, string derivedAlias, Dictionary<string, ScalarExpression> columnMap)
     {
         var snapshots = new List<(SelectScalarExpression, string)>();
 
@@ -504,10 +673,18 @@ internal sealed class DerivedTableFlattener
             if (element is not SelectScalarExpression { ColumnName: null, Expression: ColumnReferenceExpression colRef } scalar)
                 continue;
 
-            if (colRef.MultiPartIdentifier is { Identifiers.Count: >= 2 } mpi &&
+            var mpi = colRef.MultiPartIdentifier;
+            if (mpi == null)
+                continue;
+
+            if (mpi.Identifiers.Count >= 2 &&
                 string.Equals(mpi.Identifiers[0].Value, derivedAlias, StringComparison.OrdinalIgnoreCase))
             {
                 snapshots.Add((scalar, mpi.Identifiers.Last().Value));
+            }
+            else if (mpi.Identifiers.Count == 1 && columnMap.ContainsKey(mpi.Identifiers[0].Value))
+            {
+                snapshots.Add((scalar, mpi.Identifiers[0].Value));
             }
         }
 
@@ -561,6 +738,59 @@ internal sealed class DerivedTableFlattener
                 },
             };
         }
+    }
+
+    /// <summary>
+    /// Detects column names that appear in more than one QueryDerivedTable within the FROM clause.
+    /// These are ambiguous for 1-part (unqualified) matching: an unqualified "Code" might belong
+    /// to any of the QDTs that expose a "Code" column.
+    /// </summary>
+    private static HashSet<string> CollectSharedQdtColumnNames(FromClause fromClause)
+    {
+        var columnCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        void CollectFromTableRef(TableReference tableRef)
+        {
+            switch (tableRef)
+            {
+                case QueryDerivedTable { QueryExpression: QuerySpecification innerQuery }:
+                    foreach (var element in innerQuery.SelectElements)
+                    {
+                        if (element is not SelectScalarExpression scalar)
+                            continue;
+
+                        string? name = null;
+                        if (scalar.ColumnName != null)
+                            name = scalar.ColumnName.Value;
+                        else if (scalar.Expression is ColumnReferenceExpression colRef)
+                            name = colRef.MultiPartIdentifier?.Identifiers.LastOrDefault()?.Value;
+
+                        if (name != null)
+                            columnCounts[name] = columnCounts.GetValueOrDefault(name) + 1;
+                    }
+                    break;
+                case QualifiedJoin join:
+                    CollectFromTableRef(join.FirstTableReference);
+                    CollectFromTableRef(join.SecondTableReference);
+                    break;
+                case UnqualifiedJoin unqualifiedJoin:
+                    CollectFromTableRef(unqualifiedJoin.FirstTableReference);
+                    CollectFromTableRef(unqualifiedJoin.SecondTableReference);
+                    break;
+            }
+        }
+
+        foreach (var tableRef in fromClause.TableReferences)
+            CollectFromTableRef(tableRef);
+
+        var shared = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, count) in columnCounts)
+        {
+            if (count > 1)
+                shared.Add(name);
+        }
+
+        return shared;
     }
 
     /// <summary>
@@ -654,6 +884,31 @@ internal sealed class DerivedTableFlattener
         {
             if (node.MultiPartIdentifier is { Identifiers.Count: > 0 } mpi &&
                 string.Equals(mpi.Identifiers[0].Value, oldAlias, StringComparison.OrdinalIgnoreCase))
+            {
+                mpi.Identifiers[0].Value = newAlias;
+            }
+
+            base.ExplicitVisit(node);
+        }
+    }
+
+    /// <summary>
+    /// Visitor that renames column references using a batch rename map (oldAlias -> newAlias)
+    /// in a single pass to prevent cascading corruption.
+    /// </summary>
+    private sealed class MultiAliasRenamer : TSqlFragmentVisitor
+    {
+        private readonly Dictionary<string, string> renameMap;
+
+        public MultiAliasRenamer(Dictionary<string, string> renameMap)
+        {
+            this.renameMap = renameMap;
+        }
+
+        public override void ExplicitVisit(ColumnReferenceExpression node)
+        {
+            if (node.MultiPartIdentifier is { Identifiers.Count: > 0 } mpi &&
+                renameMap.TryGetValue(mpi.Identifiers[0].Value, out var newAlias))
             {
                 mpi.Identifiers[0].Value = newAlias;
             }

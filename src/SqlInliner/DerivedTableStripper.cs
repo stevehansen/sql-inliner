@@ -219,6 +219,7 @@ internal sealed class DerivedTableStripper
     /// <summary>
     /// Collects column names that the outer query references from a derived table via its alias.
     /// Includes single-part identifiers conservatively (they could reference any table).
+    /// Also looks inside OUTER/CROSS APPLY subqueries for lateral references.
     /// </summary>
     private static HashSet<string> CollectUsedColumns(QuerySpecification outerQuery, string derivedAlias)
     {
@@ -232,6 +233,12 @@ internal sealed class DerivedTableStripper
         outerQuery.OrderByClause?.Accept(collector);
         outerQuery.GroupByClause?.Accept(collector);
         outerQuery.HavingClause?.Accept(collector);
+
+        // OUTER/CROSS APPLY subqueries are QDTs that can reference columns from
+        // sibling/preceding table refs via lateral references. The standard collector
+        // stops at QDT boundaries, so we explicitly enter APPLY subqueries.
+        if (outerQuery.FromClause != null)
+            CollectFromApplySubqueries(outerQuery.FromClause, collector);
 
         var usedColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -254,6 +261,39 @@ internal sealed class DerivedTableStripper
         }
 
         return usedColumns;
+    }
+
+    /// <summary>
+    /// Walks the FROM clause tree looking for OUTER/CROSS APPLY (UnqualifiedJoin) nodes
+    /// and collects column references from their lateral subqueries.
+    /// </summary>
+    private static void CollectFromApplySubqueries(FromClause fromClause, OuterScopeColumnReferenceCollector collector)
+    {
+        foreach (var tableRef in fromClause.TableReferences)
+            CollectApplySubqueryRefs(tableRef, collector);
+    }
+
+    private static void CollectApplySubqueryRefs(TableReference tableRef, OuterScopeColumnReferenceCollector collector)
+    {
+        switch (tableRef)
+        {
+            case UnqualifiedJoin unqualifiedJoin:
+                CollectApplySubqueryRefs(unqualifiedJoin.FirstTableReference, collector);
+                // The second table ref of an UnqualifiedJoin (CROSS/OUTER APPLY) is a
+                // lateral subquery that can reference outer-scope columns. Enter the
+                // subquery's QueryExpression to find those lateral references. Using
+                // OuterScopeColumnReferenceCollector preserves the boundary stop at
+                // any nested QDTs within the APPLY.
+                if (unqualifiedJoin.SecondTableReference is QueryDerivedTable applyQdt)
+                    applyQdt.QueryExpression.Accept(collector);
+                else
+                    CollectApplySubqueryRefs(unqualifiedJoin.SecondTableReference, collector);
+                break;
+            case QualifiedJoin join:
+                CollectApplySubqueryRefs(join.FirstTableReference, collector);
+                CollectApplySubqueryRefs(join.SecondTableReference, collector);
+                break;
+        }
     }
 
     /// <summary>
