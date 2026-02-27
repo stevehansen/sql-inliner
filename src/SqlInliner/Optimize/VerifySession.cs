@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Diagnostics;
 using System.Linq;
 using Microsoft.Data.SqlClient;
@@ -157,6 +158,13 @@ public sealed class VerifySession
             var sw = Stopwatch.StartNew();
 
             wizard.Info($"[{i + 1}/{candidates.Count}] {viewName}...");
+
+            // Reopen connection if it was broken by a previous error (e.g. transport-level error)
+            if (connection.Connection?.State == ConnectionState.Broken || connection.Connection?.State == ConnectionState.Closed)
+            {
+                try { connection.Connection.Close(); } catch { }
+                connection.Connection.Open();
+            }
 
             try
             {

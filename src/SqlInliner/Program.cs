@@ -160,7 +160,8 @@ internal static class Program
     internal static bool ResolveOption(ParseResult parseResult, Option<bool> option, bool? configValue)
     {
         // If user explicitly provided the option on CLI, use that value
-        if (parseResult.GetResult(option) != null)
+        var optionResult = parseResult.GetResult(option) as System.CommandLine.Parsing.OptionResult;
+        if (optionResult != null && !optionResult.Implicit)
             return parseResult.GetValue(option);
 
         // Fall back to config value if available

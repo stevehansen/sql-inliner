@@ -22,6 +22,10 @@ public static class ValidateCommand
         {
             Description = "Deploy each inlined view and run COUNT + EXCEPT validation against the original.",
         };
+        var deployOnlyOption = new Option<bool>("--deploy-only")
+        {
+            Description = "Deploy each inlined view to check for SQL errors, but skip COUNT + EXCEPT comparison (faster than --deploy).",
+        };
         var outputDirOption = new Option<DirectoryInfo?>("--output-dir", "-o")
         {
             Description = "Save inlined SQL files to a directory.",
@@ -33,6 +37,11 @@ public static class ValidateCommand
         var filterOption = new Option<string?>("--filter", "-f")
         {
             Description = "Only process matching views. Supports exact name or SQL LIKE-style % wildcard (e.g. dbo.V%).",
+        };
+        var timeoutOption = new Option<int>("--timeout", "-t")
+        {
+            DefaultValueFactory = _ => 90,
+            Description = "Query timeout in seconds for COUNT and EXCEPT queries (default: 90).",
         };
         var stripUnusedColumnsOption = new Option<bool>("--strip-unused-columns", "-suc")
         {
@@ -56,9 +65,11 @@ public static class ValidateCommand
         {
             connectionStringOption,
             deployOption,
+            deployOnlyOption,
             outputDirOption,
             stopOnErrorOption,
             filterOption,
+            timeoutOption,
             stripUnusedColumnsOption,
             stripUnusedJoinsOption,
             aggressiveJoinStrippingOption,
@@ -112,9 +123,11 @@ public static class ValidateCommand
                 var sessionOptions = new ValidateSessionOptions
                 {
                     Deploy = parseResult.GetValue(deployOption),
+                    DeployOnly = parseResult.GetValue(deployOnlyOption),
                     OutputDir = parseResult.GetValue(outputDirOption)?.FullName,
                     StopOnError = parseResult.GetValue(stopOnErrorOption),
                     Filter = parseResult.GetValue(filterOption),
+                    TimeoutSeconds = parseResult.GetValue(timeoutOption),
                 };
 
                 var wizard = new ConsoleWizard();

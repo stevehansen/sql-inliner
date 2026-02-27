@@ -256,9 +256,11 @@ sqlinliner validate \
 |---|---|---|---|---|
 | `--connection-string` | `-cs` | string | — | Connection string (required, can come from config file) |
 | `--deploy` | `-d` | bool | `false` | Deploy each inlined view and run COUNT + EXCEPT validation |
+| `--deploy-only` | — | bool | `false` | Deploy each inlined view to check for SQL errors, but skip COUNT + EXCEPT (faster) |
 | `--output-dir` | `-o` | path | — | Save inlined SQL files to a directory |
 | `--stop-on-error` | — | bool | `false` | Halt on first failure instead of continuing |
 | `--filter` | `-f` | string | — | Only process matching views (exact name or `%` wildcard) |
+| `--timeout` | `-t` | int | `90` | Query timeout in seconds for COUNT and EXCEPT queries |
 | `--strip-unused-columns` | `-suc` | bool | `true` | Remove unused columns from nested views |
 | `--strip-unused-joins` | `-suj` | bool | `false` | Remove unused joins from nested views |
 | `--aggressive-join-stripping` | — | bool | `false` | Exclude join-condition references from usage count |
@@ -278,6 +280,9 @@ sqlinliner validate -c sqlinliner.json
 # Deploy and validate correctness (COUNT + EXCEPT)
 sqlinliner validate -cs "..." --deploy
 
+# Deploy only — check for SQL errors without COUNT + EXCEPT
+sqlinliner validate -cs "..." --deploy-only
+
 # Save inlined SQL files
 sqlinliner validate -cs "..." --output-dir ./inlined-views/
 
@@ -288,16 +293,18 @@ sqlinliner validate -cs "..." --filter "dbo.V%"
 sqlinliner validate -cs "..." --stop-on-error
 ```
 
-### Deploy mode
+### Deploy modes
 
-When `--deploy` is enabled, for each view that inlines successfully:
+When `--deploy` or `--deploy-only` is enabled, the validation runs in two phases:
 
-1. The inlined view is deployed as `[schema].[ViewName_Validate]`
-2. Row counts are compared between original and inlined views
-3. An EXCEPT comparison (both directions) checks for data differences
-4. The `_Validate` view is always dropped afterward (cleanup)
+1. **Phase 1 (inline)**: All views are inlined in-memory (fast). Views with no nested views are skipped. A summary shows how many views need deploying.
+2. **Phase 2 (deploy)**: Only views that passed inlining are deployed, with a progress counter reflecting the actual deployable count.
 
-> **Warning:** Only run `--deploy` against a backup or development database.
+**`--deploy`** deploys each inlined view as `[schema].[ViewName_Validate]`, runs COUNT + EXCEPT comparisons, and always drops `_Validate` afterward.
+
+**`--deploy-only`** deploys each inlined view as `[schema].[ViewName_Validate]` and immediately drops it — catching SQL errors (invalid columns, bad aliases) without the overhead of COUNT/EXCEPT queries. Much faster for initial error checking.
+
+> **Warning:** Only run `--deploy` or `--deploy-only` against a backup or development database.
 
 ### Summary report
 
@@ -316,7 +323,7 @@ Total: 500 views in 2m 34s
   ...
 ```
 
-Status values: `Pass`, `PassWithWarnings`, `Skipped` (no nested views), `InlineError`, `ParseError`, `DeployError`, `ValidationFail`, `Exception`.
+Status values: `Pass`, `PassWithWarnings`, `Skipped` (no nested views), `InlineError`, `ParseError`, `DeployError`, `ValidationFail`, `Timeout`, `Exception`.
 
 ## Verify deployed inlined views
 
