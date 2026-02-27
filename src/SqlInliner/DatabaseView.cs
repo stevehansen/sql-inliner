@@ -71,6 +71,10 @@ public sealed class DatabaseView
                     columnReference.MultiPartIdentifier.Identifiers.RemoveAt(0);
             }
 
+            // Normalize SelectStarExpression qualifiers: dbo.View.* → View.*
+            var starNormalizer = new SelectStarQualifierNormalizer();
+            tree.Accept(starNormalizer);
+
             return (new(tree, references), errors);
         }
 
@@ -83,5 +87,18 @@ public sealed class DatabaseView
     public static string CreateOrAlter(string viewSql)
     {
         return Regex.Replace(viewSql, @"\bCREATE\b\s+VIEW", "CREATE OR ALTER VIEW", RegexOptions.IgnoreCase);
+    }
+
+    /// <summary>
+    /// Removes schema prefixes from SelectStarExpression qualifiers (e.g. dbo.View.* → View.*).
+    /// </summary>
+    private sealed class SelectStarQualifierNormalizer : TSqlFragmentVisitor
+    {
+        public override void ExplicitVisit(SelectStarExpression node)
+        {
+            if (node.Qualifier?.Identifiers.Count >= 2)
+                node.Qualifier.Identifiers.RemoveAt(0);
+            base.ExplicitVisit(node);
+        }
     }
 }

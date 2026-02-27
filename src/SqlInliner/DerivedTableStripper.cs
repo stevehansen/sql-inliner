@@ -153,6 +153,10 @@ internal sealed class DerivedTableStripper
 
         var derivedAlias = derivedTable.Alias.Value;
 
+        // Skip if outer query uses SELECT * referencing this derived table
+        if (OuterQueryHasSelectStarForAlias(outerQuery, derivedAlias))
+            return false;
+
         // Get the inner query expression (may be QuerySpecification or BinaryQueryExpression)
         var queryExpression = derivedTable.QueryExpression;
 
@@ -523,6 +527,27 @@ internal sealed class DerivedTableStripper
                     return null;
             }
         }
+    }
+
+    /// <summary>
+    /// Checks whether the outer query's SELECT elements contain a SelectStarExpression
+    /// that references the derived table (by alias or bare *).
+    /// </summary>
+    private static bool OuterQueryHasSelectStarForAlias(QuerySpecification outerQuery, string alias)
+    {
+        foreach (var element in outerQuery.SelectElements)
+        {
+            if (element is SelectStarExpression star)
+            {
+                if (star.Qualifier == null || star.Qualifier.Identifiers.Count == 0)
+                    return true; // Bare * — references all tables including this one
+
+                var lastId = star.Qualifier.Identifiers[star.Qualifier.Identifiers.Count - 1].Value;
+                if (string.Equals(lastId, alias, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>

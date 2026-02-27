@@ -214,7 +214,7 @@ public sealed class DatabaseViewInliner
 
             var queryExpression = referencedView.References!.Body!.SelectStatement.QueryExpression; // NOTE: Can be either query or a BinaryQueryExpression for an union
 
-            if (options.StripUnusedColumns)
+            if (options.StripUnusedColumns && !HasSelectStarForView(view.References!.Body!.SelectStatement.QueryExpression, referenced, alias))
             {
                 // NOTE: Strip unused select columns from nested views
 
@@ -464,6 +464,76 @@ public sealed class DatabaseViewInliner
             if (node.MultiPartIdentifier != null)
                 References.Add(node);
             base.ExplicitVisit(node);
+        }
+    }
+
+    /// <summary>
+    /// Checks whether any QuerySpecification in the query expression tree has a SelectStarExpression
+    /// that references the given view (by alias or by being in the FROM clause for bare *).
+    /// </summary>
+    private static bool HasSelectStarForView(QueryExpression queryExpression, NamedTableReference viewRef, string alias)
+    {
+        switch (queryExpression)
+        {
+            case QuerySpecification spec:
+                return QuerySpecHasSelectStarForView(spec, viewRef, alias);
+            case BinaryQueryExpression binary:
+                return HasSelectStarForView(binary.FirstQueryExpression, viewRef, alias) ||
+                       HasSelectStarForView(binary.SecondQueryExpression, viewRef, alias);
+            default:
+                return false;
+        }
+    }
+
+    private static bool QuerySpecHasSelectStarForView(QuerySpecification spec, NamedTableReference viewRef, string alias)
+    {
+        foreach (var element in spec.SelectElements)
+        {
+            if (element is SelectStarExpression star)
+            {
+                if (star.Qualifier == null || star.Qualifier.Identifiers.Count == 0)
+                {
+                    // Bare * — check if the view is in this QS's FROM clause
+                    if (spec.FromClause != null && FromClauseContains(spec.FromClause, viewRef))
+                        return true;
+                }
+                else
+                {
+                    // Qualified alias.* — check if last identifier matches the alias
+                    var lastId = star.Qualifier.Identifiers[star.Qualifier.Identifiers.Count - 1].Value;
+                    if (string.Equals(lastId, alias, StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static bool FromClauseContains(FromClause fromClause, TableReference target)
+    {
+        foreach (var tableRef in fromClause.TableReferences)
+        {
+            if (TableReferenceContains(tableRef, target))
+                return true;
+        }
+        return false;
+    }
+
+    private static bool TableReferenceContains(TableReference tableRef, TableReference target)
+    {
+        if (ReferenceEquals(tableRef, target))
+            return true;
+
+        switch (tableRef)
+        {
+            case QualifiedJoin join:
+                return TableReferenceContains(join.FirstTableReference, target) ||
+                       TableReferenceContains(join.SecondTableReference, target);
+            case UnqualifiedJoin unqualifiedJoin:
+                return TableReferenceContains(unqualifiedJoin.FirstTableReference, target) ||
+                       TableReferenceContains(unqualifiedJoin.SecondTableReference, target);
+            default:
+                return false;
         }
     }
 

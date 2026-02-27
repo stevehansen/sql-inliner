@@ -243,6 +243,73 @@ public class SimpleTests
     }
 
     [Test]
+    public void SchemaQualifiedSelectStar_NormalizedAfterInlining()
+    {
+        // SELECT dbo.InnerView.* should become InnerView.* after inlining
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VActivePersons"),
+            "CREATE VIEW dbo.VActivePersons AS SELECT p.Id, p.FirstName, p.LastName FROM dbo.People p WHERE p.IsActive = 1");
+
+        const string viewSql = "CREATE VIEW dbo.VNeedCar AS SELECT dbo.VActivePersons.* FROM dbo.VActivePersons";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, options);
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        // After inlining, the schema prefix should be normalized away
+        result.ConvertedSql.ShouldNotContain("dbo.VActivePersons");
+        result.ConvertedSql.ShouldContain("VActivePersons.*");
+        result.ConvertedSql.ShouldContain("dbo.People");
+    }
+
+    [Test]
+    public void SelectStar_UnionBranch_ColumnsNotStripped()
+    {
+        // When outer view has SELECT * FROM InnerView in a UNION, columns should not be stripped
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VInnerUnion"),
+            "CREATE VIEW dbo.VInnerUnion AS SELECT p.Id, p.FirstName, p.LastName, p.IsActive FROM dbo.People p");
+
+        const string viewSql = @"CREATE VIEW dbo.VOuterUnion AS
+            SELECT Id, FirstName, LastName, IsActive FROM dbo.SomeTable
+            UNION ALL
+            SELECT * FROM dbo.VInnerUnion";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, options);
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        // All 4 columns should survive — not stripped to match UNION column count
+        result.ConvertedSql.ShouldContain("Id");
+        result.ConvertedSql.ShouldContain("FirstName");
+        result.ConvertedSql.ShouldContain("LastName");
+        result.ConvertedSql.ShouldContain("IsActive");
+    }
+
+    [Test]
+    public void SelectStarQualified_UnionBranch_ColumnsNotStripped()
+    {
+        // Same as above but with qualified SELECT alias.* in the UNION branch
+        connection.AddViewDefinition(DatabaseConnection.ToObjectName("dbo", "VInnerQualified"),
+            "CREATE VIEW dbo.VInnerQualified AS SELECT p.Id, p.FirstName, p.LastName, p.IsActive FROM dbo.People p");
+
+        const string viewSql = @"CREATE VIEW dbo.VOuterQualified AS
+            SELECT Id, FirstName, LastName, IsActive FROM dbo.SomeTable
+            UNION ALL
+            SELECT v.* FROM dbo.VInnerQualified v";
+
+        var inliner = new DatabaseViewInliner(connection, viewSql, options);
+        inliner.Errors.Count.ShouldBe(0);
+
+        var result = inliner.Result;
+        result.ShouldNotBeNull();
+        result.ConvertedSql.ShouldContain("Id");
+        result.ConvertedSql.ShouldContain("FirstName");
+        result.ConvertedSql.ShouldContain("LastName");
+        result.ConvertedSql.ShouldContain("IsActive");
+    }
+
+    [Test]
     public void CountColumnReferencesSkipParametersToIgnore()
     {
         const string viewSql = "CREATE VIEW dbo.VActivePeople AS SELECT CONVERT(varchar, p.Id) Id, dateadd(day, 1, p.DayOfBirth) DayOfBirth, CAST(10.5 AS INT) Number FROM dbo.VPeople p";
