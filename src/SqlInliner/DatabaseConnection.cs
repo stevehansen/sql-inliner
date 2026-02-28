@@ -75,7 +75,7 @@ public sealed class DatabaseConnection
             if (Connection == null)
                 throw new InvalidOperationException("No database connection available.");
 
-            view = Connection.Query<string>($"SELECT OBJECT_DEFINITION(object_id('{viewName}'))").First();
+            view = Connection.Query<string>("SELECT OBJECT_DEFINITION(object_id(@viewName))", new { viewName }).First();
 
             var originalStart = view.IndexOf(DatabaseView.BeginOriginal, StringComparison.Ordinal);
             if (originalStart > 0)
@@ -108,7 +108,7 @@ public sealed class DatabaseConnection
         if (Connection == null)
             return null;
 
-        return Connection.Query<string>($"SELECT OBJECT_DEFINITION(object_id('{viewName}'))").FirstOrDefault();
+        return Connection.Query<string>("SELECT OBJECT_DEFINITION(object_id(@viewName))", new { viewName }).FirstOrDefault();
     }
 
     /// <summary>
