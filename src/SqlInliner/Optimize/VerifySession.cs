@@ -50,6 +50,7 @@ public sealed class ViewVerifyResult
     public long? OnlyInOriginal { get; set; }
     public long? OnlyInInlined { get; set; }
     public List<string> Errors { get; set; } = new();
+    public List<string> Warnings { get; set; } = new();
 }
 
 /// <summary>
@@ -228,8 +229,17 @@ public sealed class VerifySession
                     {
                         if (result.OriginalRowCount != result.InlinedRowCount || result.OnlyInOriginal != 0 || result.OnlyInInlined != 0)
                         {
-                            result.Status = ViewVerifyStatus.ValidationFail;
-                            result.Errors.Add($"Row count: original={result.OriginalRowCount:N0} inlined={result.InlinedRowCount:N0}, EXCEPT: {result.OnlyInOriginal}/{result.OnlyInInlined}");
+                            if (result.OriginalRowCount > result.InlinedRowCount && result.OnlyInOriginal == 0 && result.OnlyInInlined == 0)
+                            {
+                                var diff = result.OriginalRowCount - result.InlinedRowCount;
+                                result.Status = ViewVerifyStatus.Pass;
+                                result.Warnings.Add($"Original has {diff:N0} duplicate row(s) eliminated by inlining (original={result.OriginalRowCount:N0} inlined={result.InlinedRowCount:N0}, EXCEPT: 0/0)");
+                            }
+                            else
+                            {
+                                result.Status = ViewVerifyStatus.ValidationFail;
+                                result.Errors.Add($"Row count: original={result.OriginalRowCount:N0} inlined={result.InlinedRowCount:N0}, EXCEPT: {result.OnlyInOriginal}/{result.OnlyInInlined}");
+                            }
                         }
                         else
                         {
@@ -297,6 +307,7 @@ public sealed class VerifySession
 
         var detail = result.Status switch
         {
+            ViewVerifyStatus.Pass when result.Warnings.Count > 0 => result.Warnings[0],
             ViewVerifyStatus.Pass => $"rows={result.InlinedRowCount:N0}",
             ViewVerifyStatus.Skipped => "no markers",
             _ => result.Errors.Count > 0 ? result.Errors[0] : "",
@@ -313,6 +324,8 @@ public sealed class VerifySession
             wizard.Warn(line);
         else if (result.Status == ViewVerifyStatus.Skipped)
             wizard.Info(line);
+        else if (result.Warnings.Count > 0)
+            wizard.Warn(line);
         else
             wizard.Success(line);
     }

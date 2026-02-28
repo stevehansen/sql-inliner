@@ -392,6 +392,128 @@ Total: 42 views in 1m 15s
 
 Status values: `Pass`, `Skipped`, `DeployError`, `ValidationFail`, `Timeout`, `Exception`.
 
+## Analyze inlining candidates
+
+The `analyze` subcommand identifies which views would benefit most from inlining by combining dependency depth analysis with production Query Store statistics. Use it to proactively find candidates instead of waiting for timeouts.
+
+```bash
+sqlinliner analyze \
+  -cs "Server=.;Database=MyDb;Integrated Security=true"
+```
+
+### Options
+
+| Option | Alias | Type | Default | Description |
+|---|---|---|---|---|
+| `--connection-string` | `-cs` | string | — | Connection string (required for live mode, can come from config file) |
+| `--filter` | `-f` | string | — | Only process matching views (exact name or `%` wildcard) |
+| `--days` | — | int | `30` | Query Store lookback period in days |
+| `--min-executions` | — | int | `5` | Minimum execution count for Query Store stats |
+| `--top` | — | int | — | Limit output to the top N candidates by score |
+| `--generate-script` | — | bool | — | Generate a SQL Server stored procedure for extracting analyze data |
+| `--from-file` | — | path | — | Load analyze data from a previously exported JSON file (offline mode) |
+| `--output-path` | `-op` | path | — | Write output to a file instead of the console (used with `--generate-script`) |
+
+The `--config` / `-c` option is shared with the root command and also applies here.
+
+### How it works
+
+1. **Dependency analysis** — Queries `sys.sql_expression_dependencies` with a recursive CTE to compute nesting depth, direct view references, and transitive view count for each view
+2. **Query Store statistics** — If Query Store is enabled, pulls aggregated execution counts, durations, CPU time, and logical reads, then matches them to views by name
+3. **Inlined status detection** — Checks each view for `BeginOriginal`/`EndOriginal` markers to identify already-inlined views
+
+### Two-phase workflow (offline analysis)
+
+Running `analyze` directly against production may not be acceptable. Since Query Store data survives backup/restore, you can extract the data from a restored backup — or from production using a lightweight, reviewed stored procedure — and analyze offline.
+
+**Phase 1: Extract data**
+
+Generate the extraction stored procedure:
+
+```bash
+# Print to stdout (review before deploying)
+sqlinliner analyze --generate-script
+
+# Save to file
+sqlinliner analyze --generate-script --output-path extract.sql
+
+# Custom defaults baked into the SP
+sqlinliner analyze --generate-script --days 7 --min-executions 10
+```
+
+Deploy and run the SP in SSMS or sqlcmd:
+
+```sql
+-- Create the stored procedure
+-- (run the generated script)
+
+-- Extract as JSON for sqlinliner:
+EXEC dbo.SqlInliner_ExtractAnalyzeData @OutputFormat = 'Json';
+
+-- Or as result sets for SSMS grid view:
+EXEC dbo.SqlInliner_ExtractAnalyzeData @OutputFormat = 'ResultSets';
+```
+
+Save the JSON output to a file (e.g. `analyze-data.json`).
+
+**Phase 2: Analyze offline**
+
+```bash
+# Score and rank from exported data
+sqlinliner analyze --from-file analyze-data.json
+
+# With filtering and limits
+sqlinliner analyze --from-file analyze-data.json --top 20 --filter "dbo.VCar%"
+```
+
+The `--from-file` mode requires no database connection. It uses the same scoring and display logic as live mode.
+
+### Scoring
+
+Views are scored and ranked using:
+
+```
+Score = 3 * log2(1 + depth) * log2(1 + transitiveViews)
+      + 2 * log10(1 + executions)
+      + 1 * log10(1 + totalCpuMs + totalLogicalReadsK)
+```
+
+Nesting depth is weighted highest (primary benefit driver), execution frequency second (amplifies benefit), raw cost lowest (may not be nesting-related).
+
+### Examples
+
+```bash
+# Analyze all views (live)
+sqlinliner analyze -cs "Server=.;Database=MyDb;Integrated Security=true"
+
+# With config file
+sqlinliner analyze -c sqlinliner.json
+
+# Top 20 candidates
+sqlinliner analyze -cs "..." --top 20
+
+# Filter to specific views
+sqlinliner analyze -cs "..." --filter "dbo.VCar%"
+
+# Custom Query Store lookback
+sqlinliner analyze -cs "..." --days 7 --min-executions 10
+
+# Generate extraction script
+sqlinliner analyze --generate-script --output-path extract.sql
+
+# Offline analysis from exported JSON
+sqlinliner analyze --from-file analyze-data.json
+```
+
+### Output
+
+Two tables are displayed:
+
+1. **Candidates** — Views not yet inlined, sorted by score descending, with nesting depth, transitive view count, and Query Store stats (if available)
+2. **Already Inlined** — Views with inlined markers (informational)
+
+Plus a summary of views skipped because they have no nested view references.
+
 ## Feature details
 
 ### Column stripping

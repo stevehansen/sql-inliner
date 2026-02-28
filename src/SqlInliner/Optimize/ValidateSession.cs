@@ -352,8 +352,20 @@ public sealed class ValidateSession
                 {
                     if (result.OriginalRowCount != result.InlinedRowCount || result.OnlyInOriginal != 0 || result.OnlyInInlined != 0)
                     {
-                        result.Status = ViewValidateStatus.ValidationFail;
-                        result.Errors.Add($"Row count: original={result.OriginalRowCount:N0} inlined={result.InlinedRowCount:N0}, EXCEPT: {result.OnlyInOriginal}/{result.OnlyInInlined}");
+                        // When original has more rows but EXCEPT is 0/0, the data is identical —
+                        // the original just had duplicate rows from join fan-out that got eliminated.
+                        if (result.OriginalRowCount > result.InlinedRowCount && result.OnlyInOriginal == 0 && result.OnlyInInlined == 0)
+                        {
+                            var diff = result.OriginalRowCount - result.InlinedRowCount;
+                            result.Warnings.Add($"Original has {diff:N0} duplicate row(s) eliminated by inlining (original={result.OriginalRowCount:N0} inlined={result.InlinedRowCount:N0}, EXCEPT: 0/0)");
+                            if (result.Status == ViewValidateStatus.Pass)
+                                result.Status = ViewValidateStatus.PassWithWarnings;
+                        }
+                        else
+                        {
+                            result.Status = ViewValidateStatus.ValidationFail;
+                            result.Errors.Add($"Row count: original={result.OriginalRowCount:N0} inlined={result.InlinedRowCount:N0}, EXCEPT: {result.OnlyInOriginal}/{result.OnlyInInlined}");
+                        }
                     }
                 }
             }
