@@ -117,7 +117,7 @@ sql-inliner is a .NET CLI tool and NuGet library that optimizes SQL Server views
 
 | ID | Threat | Attack Path | Likelihood | Impact | Score | Mitigation |
 |----|--------|-------------|------------|--------|-------|------------|
-| T-1 | SQL injection via `--view-name` | User-supplied view name is interpolated into `OBJECT_DEFINITION(object_id('...'))` without parameterization | 2 | 4 | **8** | **Unmitigated.** String interpolation in `DatabaseConnection.cs:78,111`. Should use parameterized queries. |
+| T-1 | SQL injection via `--view-name` | User-supplied view name is interpolated into `OBJECT_DEFINITION(object_id('...'))` without parameterization | 2 | 4 | **8** | **Mitigated.** Fixed in [#93](https://github.com/stevehansen/sql-inliner/issues/93) — now uses Dapper parameterized queries. |
 | T-2 | Malicious SQL file via `--view-path` or config `views` | Attacker provides a crafted `.sql` file that contains malicious SQL; tool parses and may deploy it | 2 | 3 | 6 | ScriptDom parses the SQL as a view definition (CREATE VIEW). Deployment only occurs in interactive optimize flow with user confirmation. |
 | T-3 | Path traversal in config view paths | Config `views` dictionary specifies `../../../sensitive.sql` to read arbitrary files | 2 | 2 | 4 | `Path.GetFullPath()` normalizes paths but does not validate containment within config directory. Impact limited to reading files as SQL (would fail parsing). |
 | T-4 | Session file tampering | Attacker modifies iteration files between optimize steps to inject SQL | 1 | 3 | 3 | Session files are in a timestamped directory. SHA256 hash comparison detects edits. User confirms before deployment. |
@@ -128,7 +128,7 @@ sql-inliner is a .NET CLI tool and NuGet library that optimizes SQL Server views
 - SHA256 hash verification for session file edits
 - Bracketed identifiers `[schema].[viewName]` in DDL statements (QueryRunner, ValidateSession, VerifySession)
 - Interactive confirmation before deployment in optimize flow
-- **Gap:** `GetViewDefinition()` and `TryGetRawViewDefinition()` use string interpolation — should be parameterized
+- `GetViewDefinition()` and `TryGetRawViewDefinition()` use Dapper parameterized queries (fixed in [#93](https://github.com/stevehansen/sql-inliner/issues/93))
 
 ### R — Repudiation
 
@@ -195,13 +195,13 @@ sql-inliner is a .NET CLI tool and NuGet library that optimizes SQL Server views
 
 | ID | Threat | Score | Status |
 |----|--------|-------|--------|
-| T-1 | SQL injection via `--view-name` in `DatabaseConnection.cs` | 8 | Unmitigated |
+| T-1 | SQL injection via `--view-name` in `DatabaseConnection.cs` | 8 | Mitigated ([#93](https://github.com/stevehansen/sql-inliner/issues/93)) |
 | I-1 | Connection string exposure via CLI arguments | 9 | Partially mitigated |
 | I-2 | Connection strings in config files (not gitignored) | 9 | Partially mitigated |
 
 ### Residual Risks
 
-- **T-1 (SQL Injection):** The `--view-name` parameter flows directly into string-interpolated SQL. While the tool is a local CLI used by trusted developers/DBAs, this violates defense-in-depth. Fix: use parameterized queries (`new { viewName }`).
+- **T-1 (SQL Injection):** Fixed in [#93](https://github.com/stevehansen/sql-inliner/issues/93). `GetViewDefinition()` and `TryGetRawViewDefinition()` now use Dapper parameterized queries instead of string interpolation.
 - **I-1/I-2 (Credential Exposure):** Connection strings with embedded passwords can leak via process lists, shell history, CI logs, or accidentally committed config files. The recommended approach is Windows Authentication (no password in connection string). Adding `sqlinliner.json` to the `.gitignore` template would reduce the config file risk.
 
 ## 4. Security Controls Summary
