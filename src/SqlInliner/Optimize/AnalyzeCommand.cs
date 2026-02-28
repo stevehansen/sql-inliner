@@ -137,12 +137,8 @@ public static class AnalyzeCommand
                 return;
             }
 
-            var csb = new SqlConnectionStringBuilder(connectionString);
-            if (!csb.ContainsKey(nameof(csb.ApplicationName)))
-            {
-                csb.ApplicationName = ThisAssembly.AppName;
-                connectionString = csb.ToString();
-            }
+            var store = CredentialStoreFactory.Create(out _);
+            connectionString = ConnectionStringHelper.Resolve(connectionString, store);
 
             var sqlConnection = new SqlConnection(connectionString);
             sqlConnection.Open();

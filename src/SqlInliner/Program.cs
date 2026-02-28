@@ -63,6 +63,7 @@ internal static class Program
         rootCommand.Add(ValidateCommand.Create(configOption));
         rootCommand.Add(VerifyCommand.Create(configOption));
         rootCommand.Add(AnalyzeCommand.Create(configOption));
+        rootCommand.Add(CredentialsCommand.Create());
 
         rootCommand.SetAction(parseResult =>
         {
@@ -99,12 +100,8 @@ internal static class Program
             DatabaseConnection connection;
             if (!string.IsNullOrEmpty(connectionString))
             {
-                var cs = new SqlConnectionStringBuilder(connectionString);
-                if (!cs.ContainsKey(nameof(cs.ApplicationName)))
-                {
-                    cs.ApplicationName = ThisAssembly.AppName;
-                    connectionString = cs.ToString();
-                }
+                var store = CredentialStoreFactory.Create(out _);
+                connectionString = ConnectionStringHelper.Resolve(connectionString, store);
                 connection = new DatabaseConnection(new SqlConnection(connectionString));
             }
             else

@@ -5,7 +5,7 @@
 | Field | Value |
 |-------|-------|
 | Application | sql-inliner |
-| Version | v1 |
+| Version | v2 |
 | Created | 2026-02-28 |
 | Last Updated | 2026-02-28 |
 | Next Review | 2029-02-28 |
@@ -147,17 +147,18 @@ sql-inliner is a .NET CLI tool and NuGet library that optimizes SQL Server views
 
 | ID | Threat | Attack Path | Likelihood | Impact | Score | Mitigation |
 |----|--------|-------------|------------|--------|-------|------------|
-| I-1 | Connection string exposure via CLI arguments | `--connection-string` visible in process list, shell history, CI/CD logs | 3 | 3 | **9** | **Partially mitigated.** Config file and environment-based alternatives exist, but CLI still accepts plaintext. No built-in redaction. |
-| I-2 | Connection strings in config files | `sqlinliner.json` stores connection strings with embedded passwords; file not gitignored by default | 3 | 3 | **9** | **Partially mitigated.** Users can use Windows Authentication (no password). Config file not gitignored — could be committed accidentally. |
+| I-1 | Connection string exposure via CLI arguments | `--connection-string` visible in process list, shell history, CI/CD logs | 3 | 3 | **9** | **Mitigated.** Built-in credential store stores credentials in OS keychain (Windows Credential Manager, macOS Keychain, Linux libsecret). Passwords never appear in CLI args, process lists, or shell history. |
+| I-2 | Connection strings in config files | `sqlinliner.json` stores connection strings with embedded passwords; file not gitignored by default | 3 | 3 | **9** | **Mitigated.** Config files can specify `Server=...;Database=...` without passwords. Credentials injected at runtime from OS credential store. |
 | I-3 | Session files contain view SQL and metadata | Session directories store full view SQL, execution plans, table names, machine/user names | 2 | 2 | 4 | Files are local to the user's machine. Default OS permissions apply. No automatic cleanup. |
 | I-4 | Exception messages may leak paths or SQL | Error messages expose file paths and database errors to the user | 2 | 1 | 2 | Acceptable for a CLI tool. Errors are displayed to the authenticated user only. |
 | I-5 | Benchmark reports contain environment info | HTML reports include `Environment.MachineName`, `Environment.UserName`, database version, table names | 2 | 2 | 4 | Reports are local files. Users should treat them as internal artifacts. |
 
 **Countermeasures:**
+- Built-in credential store (`credentials` subcommand) stores credentials in OS keychain — passwords never appear in CLI args or config files
 - Windows Authentication / Integrated Security eliminates password exposure
+- `ConnectionStringHelper.Resolve()` auto-injects stored credentials at runtime
 - `SqlConnectionStringBuilder` normalizes connection strings (does not add passwords)
 - Session files are local with OS-level access control
-- **Gap:** `sqlinliner.json` is not in `.gitignore` by default — credential leak risk
 - **Gap:** No automatic cleanup of session directories
 
 ### D — Denial of Service
@@ -196,13 +197,13 @@ sql-inliner is a .NET CLI tool and NuGet library that optimizes SQL Server views
 | ID | Threat | Score | Status |
 |----|--------|-------|--------|
 | T-1 | SQL injection via `--view-name` in `DatabaseConnection.cs` | 8 | Mitigated ([#93](https://github.com/stevehansen/sql-inliner/issues/93)) |
-| I-1 | Connection string exposure via CLI arguments | 9 | Partially mitigated |
-| I-2 | Connection strings in config files (not gitignored) | 9 | Partially mitigated |
+| I-1 | Connection string exposure via CLI arguments | 9 | Mitigated (credential store) |
+| I-2 | Connection strings in config files (not gitignored) | 9 | Mitigated (credential store) |
 
 ### Residual Risks
 
 - **T-1 (SQL Injection):** Fixed in [#93](https://github.com/stevehansen/sql-inliner/issues/93). `GetViewDefinition()` and `TryGetRawViewDefinition()` now use Dapper parameterized queries instead of string interpolation.
-- **I-1/I-2 (Credential Exposure):** Connection strings with embedded passwords can leak via process lists, shell history, CI logs, or accidentally committed config files. The recommended approach is Windows Authentication (no password in connection string). Adding `sqlinliner.json` to the `.gitignore` template would reduce the config file risk.
+- **I-1/I-2 (Credential Exposure):** Mitigated by built-in credential store (`credentials` subcommand). Credentials are stored in the OS keychain and auto-injected at runtime. Connection strings in CLI args and config files no longer need embedded passwords.
 
 ## 4. Security Controls Summary
 
@@ -212,7 +213,7 @@ sql-inliner is a .NET CLI tool and NuGet library that optimizes SQL Server views
 | Authorization | Delegates to SQL Server permissions; tool requires VIEW DEFINITION, SELECT, and optionally CREATE/ALTER/DROP VIEW |
 | Input Validation | ScriptDom AST parsing validates SQL structure; `SqlConnectionStringBuilder` validates connection strings |
 | Output Encoding | SQL output generated by `Sql150ScriptGenerator` with proper escaping |
-| Secrets Management | Connection strings via CLI args or config file; no built-in secrets vault integration |
+| Secrets Management | Built-in OS credential store (`credentials` subcommand) for Windows Credential Manager, macOS Keychain, and Linux libsecret; auto-injects stored credentials into connection strings at runtime |
 | Audit Logging | Session logs with timestamps; `validate-errors.log` for batch operations |
 | Error Handling | Exceptions caught at command level; error messages displayed to user |
 | Dependency Security | CodeQL analysis in CI; no known vulnerable dependencies |
@@ -224,6 +225,7 @@ sql-inliner is a .NET CLI tool and NuGet library that optimizes SQL Server views
 | Version | Date | Reviewer | Changes |
 |---------|------|----------|---------|
 | v1 | 2026-02-28 | Claude Code (STRIDE analysis) | Initial threat model |
+| v2 | 2026-02-28 | Claude Code | Mitigated I-1, I-2: Added built-in OS credential store |
 
 ## 6. References
 

@@ -99,6 +99,22 @@ Conditionally compiled (`#if !RELEASELIBRARY`) alongside the Optimize subsystem.
 - **Derived table flattening**: When `FlattenDerivedTables` is enabled, `DerivedTableFlattener` runs as a post-processing step after stripping. It replaces eligible `QueryDerivedTable` nodes with their inner `FROM` tree (single table or JOIN tree), rewrites column references, and merges WHERE clauses. Uses `OuterScopeColumnReferenceCollector` that stops at `QueryDerivedTable` boundaries to prevent corrupting shared AST object references.
 - **`ParametersToIgnore`**: Maps SQL functions (e.g., DATEADD) to parameter indexes that should be excluded from column reference analysis.
 
+### Credential subsystem (`Optimize/` directory)
+
+Conditionally compiled (`#if !RELEASELIBRARY`) alongside the Optimize subsystem.
+
+22. **ICredentialStore** — Interface for platform-specific credential storage. Defines `Store()`, `Retrieve()`, `Remove()`, and `List()`. `StoredCredential` holds username + password. `CredentialStoreFactory.Create()` returns the platform-appropriate implementation (or null with a warning). `CredentialStoreFactory.BuildKey()` normalizes server/database into a `"server\database"` key (lowercase, trimmed).
+
+23. **WindowsCredentialStore** — P/Invoke to `advapi32.dll` (Credential Manager). Uses `CRED_TYPE_GENERIC` with target prefix `"sqlinliner:"`. Username in `CREDENTIAL.UserName`, password as UTF-16 bytes in `CredentialBlob`. `List()` uses `CredEnumerate("sqlinliner:*")`.
+
+24. **MacCredentialStore** — Wraps macOS `security` CLI (Keychain). Uses a JSON index file (`~/.sqlinliner/credentials.json`) for username lookup and listing (no passwords in index).
+
+25. **LinuxCredentialStore** — Wraps `secret-tool` CLI (libsecret). Uses a JSON index file (`~/.sqlinliner/credentials.json`) for username lookup and listing. Constructor checks for `secret-tool` availability with install instructions.
+
+26. **ConnectionStringHelper** — Static `Resolve(connectionString, store)` method that replaces the duplicated `SqlConnectionStringBuilder` normalization blocks across all 5 entry points. Sets `ApplicationName`, injects stored credentials if no explicit credentials or Integrated Security, falls back to Integrated Security.
+
+27. **CredentialsCommand** — System.CommandLine subcommand (`credentials`) with `add`, `list`, and `remove` sub-commands. `add` prompts for username/password with masked input. `list` displays server/database/username table (never shows passwords). `remove` deletes from the OS credential store. Does not take `configOption`.
+
 ## Testing Patterns
 
 Tests use **NUnit** with **Shouldly** assertions. The standard pattern:

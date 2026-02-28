@@ -514,6 +514,69 @@ Two tables are displayed:
 
 Plus a summary of views skipped because they have no nested view references.
 
+## Credential management
+
+The `credentials` subcommand stores database credentials in your OS credential store (Windows Credential Manager, macOS Keychain, or Linux libsecret). This eliminates the need to put passwords in connection strings, CLI arguments, or config files.
+
+### Storing credentials
+
+```bash
+# Store credentials (prompts for password with masked input)
+sqlinliner credentials add -s myserver -d mydb -u myuser
+
+# Store with prompted username too
+sqlinliner credentials add -s myserver -d mydb
+```
+
+### Auto-injection
+
+Once credentials are stored, connection strings without explicit credentials will automatically use the stored values:
+
+```bash
+# Password-free connection string — credentials auto-injected from store
+sqlinliner -cs "Server=myserver;Database=mydb" -vn dbo.VHeavy
+
+# Also works with subcommands
+sqlinliner validate -cs "Server=myserver;Database=mydb"
+sqlinliner optimize -cs "Server=myserver;Database=mydb"
+```
+
+The resolution order is:
+1. Explicit `User Id` and `Password` in the connection string — used as-is
+2. `Integrated Security=true` in the connection string — used as-is
+3. Stored credentials matching the server/database — injected automatically
+4. Fallback — `Integrated Security=true` (Windows Authentication)
+
+### Listing and removing credentials
+
+```bash
+# List all stored credentials (passwords are never shown)
+sqlinliner credentials list
+
+# Remove stored credentials
+sqlinliner credentials remove -s myserver -d mydb
+```
+
+### Config files without passwords
+
+With the credential store, config files can omit passwords entirely:
+
+```json
+{
+    "connectionString": "Server=myserver;Database=mydb"
+}
+```
+
+### Platform support
+
+| Platform | Backend |
+|----------|---------|
+| Windows | Credential Manager (advapi32.dll) |
+| macOS | Keychain (`security` CLI) |
+| Linux | libsecret (`secret-tool` CLI) |
+
+On Linux, `secret-tool` must be installed (`sudo apt install libsecret-tools` on Ubuntu/Debian).
+
 ## Feature details
 
 ### Column stripping
