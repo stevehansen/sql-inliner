@@ -766,7 +766,10 @@ internal sealed class DerivedTableFlattener
                             name = colRef.MultiPartIdentifier?.Identifiers.LastOrDefault()?.Value;
 
                         if (name != null)
-                            columnCounts[name] = columnCounts.GetValueOrDefault(name) + 1;
+                        {
+                            columnCounts.TryGetValue(name, out var existing);
+                            columnCounts[name] = existing + 1;
+                        }
                     }
                     break;
                 case QualifiedJoin join:
@@ -784,10 +787,10 @@ internal sealed class DerivedTableFlattener
             CollectFromTableRef(tableRef);
 
         var shared = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (name, count) in columnCounts)
+        foreach (var kvp in columnCounts)
         {
-            if (count > 1)
-                shared.Add(name);
+            if (kvp.Value > 1)
+                shared.Add(kvp.Key);
         }
 
         return shared;
