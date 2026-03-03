@@ -282,17 +282,35 @@ SET STATISTICS IO OFF;";
 
         if (match.Success)
         {
-            var stats = new TableIOStats
-            {
-                TableName = match.Groups["table"].Value,
-                ScanCount = long.Parse(match.Groups["scan"].Value),
-                LogicalReads = long.Parse(match.Groups["logical"].Value),
-                PhysicalReads = long.Parse(match.Groups["physical"].Value),
-                ReadAheadReads = long.Parse(match.Groups["readahead"].Value),
-            };
+            var tableName = match.Groups["table"].Value;
+            var scanCount = long.Parse(match.Groups["scan"].Value);
+            var logicalReads = long.Parse(match.Groups["logical"].Value);
+            var physicalReads = long.Parse(match.Groups["physical"].Value);
+            var readAheadReads = long.Parse(match.Groups["readahead"].Value);
 
-            result.TableStats.Add(stats);
-            result.LogicalReads += stats.LogicalReads;
+            // SQL Server can emit multiple lines for the same table name (e.g. Worktable for each spool).
+            // Aggregate into an existing entry rather than creating a duplicate.
+            var existing = result.TableStats.FirstOrDefault(t => t.TableName == tableName);
+            if (existing != null)
+            {
+                existing.ScanCount += scanCount;
+                existing.LogicalReads += logicalReads;
+                existing.PhysicalReads += physicalReads;
+                existing.ReadAheadReads += readAheadReads;
+            }
+            else
+            {
+                result.TableStats.Add(new TableIOStats
+                {
+                    TableName = tableName,
+                    ScanCount = scanCount,
+                    LogicalReads = logicalReads,
+                    PhysicalReads = physicalReads,
+                    ReadAheadReads = readAheadReads,
+                });
+            }
+
+            result.LogicalReads += logicalReads;
         }
     }
 
