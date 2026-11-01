@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: |
+          8.0.x
+          10.0.x
+
+    - name: Build
+      run: dotnet build SqlInliner.sln --configuration Release
+
+    - name: Test
+      run: dotnet test SqlInliner.sln --no-build --configuration Release
+
+    # Same configuration publish.yml packs the multi-target library with
+    - name: Build library (all targets)
+      run: dotnet build src/SqlInliner/SqlInliner.csproj --configuration ReleaseLibrary
