@@ -44,15 +44,15 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Dapper" Version="2.1.79" />
-    <PackageReference Include="Microsoft.SqlServer.DacFx" Version="170.4.83" />
+    <PackageReference Include="Dapper" Version="2.1.89" />
+    <PackageReference Include="Microsoft.SqlServer.DacFx" Version="170.5.96" />
     <PackageReference Include="MinVer" Version="7.0.0">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="System.CommandLine" Version="2.0.10" Condition="'$(Configuration)' != 'ReleaseLibrary'" />
-    <PackageReference Include="System.Formats.Asn1" Version="10.0.10" />
-    <PackageReference Include="System.IO.Packaging" Version="10.0.10" />
+    <PackageReference Include="System.CommandLine" Version="2.0.14" Condition="'$(Configuration)' != 'ReleaseLibrary'" />
+    <PackageReference Include="System.Formats.Asn1" Version="10.0.14" />
+    <PackageReference Include="System.IO.Packaging" Version="10.0.14" />
     <PackageReference Include="ThisAssembly.AssemblyInfo" Version="2.1.6">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
